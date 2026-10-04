@@ -126,6 +126,38 @@ async function smokeServe(app: string) {
   })
 }
 
+async function capture(argv: string[], cwd: string, env: Record<string, string>) {
+  const proc = Bun.spawn(argv, { cwd, env: { ...process.env, ...env }, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+  return { code, output: out + err }
+}
+
+/** The production migration guard: refuses without a URL or on the dev URL, lists pending without --yes, applies with it. */
+async function migrationGuard(app: string, env: { DATABASE_URL: string }) {
+  console.log("\n=== migrate-production guard")
+  const script = [bun, "run", "db:migrate:production", "--"]
+  const mustRefuse = async (args: string[], what: string) => {
+    const { code, output } = await capture([...script, ...args], app, env)
+    if (code === 0 || !output.includes("refusing")) throw new Error(`migrate-production did not refuse ${what} (exit ${code}): ${output}`)
+  }
+  await mustRefuse([], "to run without --production-url")
+  await mustRefuse(["--production-url", env.DATABASE_URL, "--yes"], "the development URL")
+
+  // The server's default `postgres` database stands in for production: it has no migration history.
+  const prodUrl = env.DATABASE_URL.replace(/\/app$/, "/postgres")
+  if (prodUrl === env.DATABASE_URL) throw new Error("could not derive the stand-in production URL")
+  const listed = async (args: string[]) => {
+    const { code, output } = await capture([...script, "--production-url", prodUrl, ...args], app, env)
+    if (code !== 0) throw new Error(`migrate-production failed (exit ${code}): ${output}`)
+    return output
+  }
+  const dry = await listed([])
+  if (!dry.includes('"pending":["0000_') || !dry.includes("dry run")) throw new Error(`dry run did not list pending migrations: ${dry}`)
+  const applied = await listed(["--yes"])
+  if (!applied.includes("applied 1 migration")) throw new Error(`--yes did not apply: ${applied}`)
+  if (!(await listed([])).includes("nothing to apply")) throw new Error("applied migrations still show as pending")
+}
+
 /**
  * The db item's compose file, migrations from drizzle-kit, then the app over HTTP (scripts/e2e.ts):
  * auth gate and ownership against a real Postgres. Compose project and port are unique, and it is always torn down.
@@ -148,6 +180,7 @@ async function e2eWithPostgres(app: string) {
     "db:start": "docker compose up -d",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run scripts/migrate.ts",
+    "db:migrate:production": "bun run scripts/migrate-production.ts",
     "db:studio": "drizzle-kit studio",
   }
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2))
@@ -156,8 +189,15 @@ async function e2eWithPostgres(app: string) {
     await run("postgres up", [...compose, "up", "-d", "--wait"], app, env)
     await run("db:generate", [bun, "run", "db:generate"], app, env)
     await run("db:migrate", [bun, "run", "db:migrate"], app, env)
-    await writeFile(join(app, "e2e.verify.ts"), await readFile(join(root, "scripts", "e2e.ts"), "utf8"))
-    await withApp(app, env, "?deep=1", (base) => run("e2e", [bun, "e2e.verify.ts"], app, { BASE: base }))
+    await migrationGuard(app, env)
+    // Copied in only for the run: the Docker build typechecks the whole app and must not see it.
+    const e2eFile = join(app, "e2e.verify.ts")
+    await writeFile(e2eFile, await readFile(join(root, "scripts", "e2e.ts"), "utf8"))
+    try {
+      await withApp(app, env, "?deep=1", (base) => run("e2e", [bun, "e2e.verify.ts"], app, { BASE: base }))
+    } finally {
+      await rm(e2eFile, { force: true })
+    }
   } finally {
     await run("postgres down", [...compose, "down", "-v"], app, env)
   }

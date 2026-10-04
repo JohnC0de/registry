@@ -26,7 +26,7 @@ Built for a fresh `@tanstack/cli create` scaffold (Tailwind 4, shadcn new-york) 
 | `auth-gate` | Better Auth (email + password), `requireUser()`, dev origin detection (loopback + `*.localhost`, prod pinned to `BETTER_AUTH_URL`) with tests, `/api/auth/*`, `_authed` layout, `/login` | `env`, `db`, shadcn `button` `input` `label` |
 | `owned-table` | The ownership pattern: `notes` table with indexed `userId`, list/create/update/delete server fns scoped by session user, zod schemas + tests, `/notes` page | `auth-gate` |
 | `health` | `GET /api/health` (liveness, no I/O) and `?deep=1` (pings Postgres, 503 when down) | `db` |
-| `docker` | Multi-stage `Dockerfile` for the vite build on Bun, `serve.ts` (static assets + SSR handler), `.dockerignore` | `health` |
+| `docker` | Multi-stage `Dockerfile` for the vite build on Bun (base images pinned by digest, typecheck gates the build, non-root `bun` user), `serve.ts` (static assets + SSR handler), `.dockerignore` | `health` |
 
 ```bash
 bunx shadcn@latest add @john/auth-gate      # pulls env + db + button/input/label
@@ -43,12 +43,22 @@ bunx shadcn@latest add @john/health @john/docker
     "db:start": "docker compose up -d",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run scripts/migrate.ts",
+    "db:migrate:production": "bun run scripts/migrate-production.ts",
     "db:studio": "drizzle-kit studio"
   }
   ```
 
 - **Migrations are yours.** Items add schema files (`auth.ts`, `notes-table.ts`) but no SQL. After adding
   `auth-gate` or `owned-table`: `bun run db:start`, `bun run db:generate`, `bun run db:migrate`, then commit `drizzle/`.
+- **Production migrations.** `bun run db:migrate:production -- --production-url "$PRODUCTION_DATABASE_URL"` lists pending
+  migrations and changes nothing. Add `--yes` to apply. It refuses to run without the flag, and when the URL equals `DATABASE_URL`
+  (which must be the development database). Run the same migrations on development first.
+- **Database tuning.** `DATABASE_POOL_SIZE` (8), `DB_STATEMENT_TIMEOUT_MS` (10000), `DB_LOCK_TIMEOUT_MS` (2000),
+  `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` (10000) and `DB_APPLICATION_NAME` (`app`) are optional; the defaults apply when unset.
+- **Secrets stay out of logs.** `getServerEnv()` returns `DATABASE_URL` and `BETTER_AUTH_SECRET` as `Secret` values that print as
+  `[redacted]` in strings, JSON and console output. Call `.reveal()` only where the value is used. Env errors name the key, never the value.
+- **Locks need an owner filter.** If you add `FOR UPDATE` or any lock helper to an owned table, filter by owner in the same query
+  that takes the lock. Locking by id and checking ownership afterwards lets a non-owner stall the owner. The notes demo has no lock path.
 - **Secret.** `env` writes `BETTER_AUTH_SECRET=change-me` to `.env.local`. It is shorter than 32 chars on purpose,
   so the first request fails loudly. Set a real one: `openssl rand -base64 32`.
 - **Production.** Set `NODE_ENV=production`, `DATABASE_URL`, `BETTER_AUTH_SECRET` and the public HTTPS

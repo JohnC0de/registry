@@ -47,7 +47,7 @@ function resolveBaseURL(env: ReturnType<typeof getServerEnv>) {
 function createAuth() {
   const env = getServerEnv()
   return betterAuth({
-    secret: env.BETTER_AUTH_SECRET,
+    secret: env.BETTER_AUTH_SECRET.reveal(),
     baseURL: resolveBaseURL(env),
     // Portless (and real reverse proxies) set x-forwarded-*; honor them so
     // protocol=auto and cookie Secure match the browser origin.

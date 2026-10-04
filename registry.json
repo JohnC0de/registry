@@ -7,7 +7,7 @@
       "name": "env",
       "type": "registry:item",
       "title": "Server env",
-      "description": "Zod-validated getServerEnv() (DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL). Parsed on first use, so vite build needs no secrets.",
+      "description": "Zod-validated getServerEnv() (DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL plus optional DATABASE_POOL_SIZE and DB_*_MS / DB_APPLICATION_NAME). Secrets are Secret values that print as [redacted] in strings, JSON and console output; read them with .reveal(). Validation errors name the key, never the value. Parsed on first use, so vite build needs no secrets.",
       "dependencies": [
         "zod"
       ],
@@ -21,20 +21,30 @@
           "path": "registry/env/src/env.ts",
           "type": "registry:file",
           "target": "~/src/env.ts"
+        },
+        {
+          "path": "registry/env/src/env.test.ts",
+          "type": "registry:file",
+          "target": "~/src/env.test.ts"
         }
+      ],
+      "devDependencies": [
+        "@types/bun"
       ]
     },
     {
       "name": "db",
       "type": "registry:item",
       "title": "Drizzle + Postgres",
-      "description": "Cached drizzle client (getDb), shared timestamp columns, drizzle.config.ts (schema/*.ts), scripts/migrate.ts and a local Postgres docker-compose.yml. package.json scripts cannot ship; add them: { \"db:start\": \"docker compose up -d\", \"db:generate\": \"drizzle-kit generate\", \"db:migrate\": \"bun run scripts/migrate.ts\", \"db:studio\": \"drizzle-kit studio\" }. Then run db:start, db:generate and db:migrate.",
+      "description": "Cached drizzle client (getDb) with pool size, statement_timeout, lock_timeout, idle_in_transaction_session_timeout and application_name read from env; shared timestamp columns; drizzle.config.ts (schema/*.ts); scripts/migrate.ts; a production migration guard (scripts/migrate-production.ts: needs --production-url, refuses DATABASE_URL, dry listing unless --yes); and a local Postgres docker-compose.yml. package.json scripts cannot ship; add them: { \"db:start\": \"docker compose up -d\", \"db:generate\": \"drizzle-kit generate\", \"db:migrate\": \"bun run scripts/migrate.ts\", \"db:migrate:production\": \"bun run scripts/migrate-production.ts\", \"db:studio\": \"drizzle-kit studio\" }. Then run db:start, db:generate and db:migrate.",
       "dependencies": [
         "drizzle-orm",
-        "postgres"
+        "postgres",
+        "zod"
       ],
       "devDependencies": [
-        "drizzle-kit"
+        "drizzle-kit",
+        "@types/bun"
       ],
       "registryDependencies": [
         "@john/env"
@@ -64,6 +74,21 @@
           "path": "registry/db/docker-compose.yml",
           "type": "registry:file",
           "target": "~/docker-compose.yml"
+        },
+        {
+          "path": "registry/db/scripts/migrate-production.ts",
+          "type": "registry:file",
+          "target": "~/scripts/migrate-production.ts"
+        },
+        {
+          "path": "registry/db/src/lib/db/migrations.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/db/migrations.ts"
+        },
+        {
+          "path": "registry/db/src/lib/db/migrations.test.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/db/migrations.test.ts"
         }
       ]
     },
@@ -142,7 +167,7 @@
       "name": "owned-table",
       "type": "registry:item",
       "title": "User-owned table (notes demo)",
-      "description": "The ownership pattern: notes table with indexed userId, server fns that scope every query by the session user, zod schemas + test, page and /notes route under _authed. Copy it for real tables, then delete the demo. After adding: run db:generate and db:migrate.",
+      "description": "The ownership pattern: notes table with indexed userId, server fns that scope every query by the session user, zod schemas + test, page and /notes route under _authed. Rule for any lock you add (FOR UPDATE, advisory or lock helper): check ownership in the same query that takes the lock (join or WHERE on userId, or on membership for shared rows). Never lock by id and check afterwards: a non-owner would take the row lock and stall the real owner. Copy it for real tables, then delete the demo. After adding: run db:generate and db:migrate.",
       "dependencies": [
         "zod"
       ],
