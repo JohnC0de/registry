@@ -1,0 +1,14 @@
+{
+  "name": "registry",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "shadcn build",
+    "verify": "bun run scripts/verify.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "shadcn": "^4.21.1",
+    "typescript": "^6.0.2"
+  }
+}

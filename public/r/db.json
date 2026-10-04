@@ -1,0 +1,49 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "db",
+  "title": "Drizzle + Postgres",
+  "description": "Cached drizzle client (getDb), shared timestamp columns, drizzle.config.ts (schema/*.ts), scripts/migrate.ts and a local Postgres docker-compose.yml. package.json scripts cannot ship; add them: { \"db:start\": \"docker compose up -d\", \"db:generate\": \"drizzle-kit generate\", \"db:migrate\": \"bun run scripts/migrate.ts\", \"db:studio\": \"drizzle-kit studio\" }. Then run db:start, db:generate and db:migrate.",
+  "dependencies": [
+    "drizzle-orm",
+    "postgres"
+  ],
+  "devDependencies": [
+    "drizzle-kit"
+  ],
+  "registryDependencies": [
+    "@john/env"
+  ],
+  "files": [
+    {
+      "path": "registry/db/src/lib/db/index.ts",
+      "content": "import { drizzle } from \"drizzle-orm/postgres-js\"\nimport postgres from \"postgres\"\n\nimport { getServerEnv } from \"@/env\"\n\nconst globalForDb = globalThis as unknown as { __db?: ReturnType<typeof createDb> }\n\n/**\n * `max` is per process: real usage is max x replicas, so size it against the server's\n * `max_connections`. Behind a transaction-mode pooler (PgBouncer, Supavisor) add `prepare: false`;\n * prepared statements do not survive pooled transactions.\n */\nfunction createDb() {\n  const { DATABASE_URL } = getServerEnv()\n  const client = postgres(DATABASE_URL, { max: 8 })\n  return drizzle(client, { casing: \"snake_case\" })\n}\n\n/** Cached on globalThis so Vite's dev HMR reuses one pool instead of leaking one per reload. */\nexport function getDb() {\n  globalForDb.__db ??= createDb()\n  return globalForDb.__db\n}\n\nexport type Db = ReturnType<typeof getDb>\n",
+      "type": "registry:file",
+      "target": "~/src/lib/db/index.ts"
+    },
+    {
+      "path": "registry/db/src/lib/db/schema/columns.ts",
+      "content": "import { timestamp } from \"drizzle-orm/pg-core\"\n\n/**\n * Shared audit columns. Spread into every table: `pgTable(\"x\", { id: ..., ...timestamps })`.\n * `updatedAt` refreshes on every drizzle update, so callers never set it by hand.\n */\nexport const timestamps = {\n  createdAt: timestamp(\"created_at\").defaultNow().notNull(),\n  updatedAt: timestamp(\"updated_at\")\n    .defaultNow()\n    .$onUpdate(() => new Date())\n    .notNull(),\n}\n",
+      "type": "registry:file",
+      "target": "~/src/lib/db/schema/columns.ts"
+    },
+    {
+      "path": "registry/db/drizzle.config.ts",
+      "content": "import { defineConfig } from \"drizzle-kit\"\n\nexport default defineConfig({\n  out: \"./drizzle\",\n  // One file per feature under schema/ (columns.ts, auth.ts, notes.ts, ...): items add files, never edit one.\n  schema: \"./src/lib/db/schema/*.ts\",\n  dialect: \"postgresql\",\n  casing: \"snake_case\",\n  dbCredentials: {\n    url: process.env.DATABASE_URL!,\n  },\n})\n",
+      "type": "registry:file",
+      "target": "~/drizzle.config.ts"
+    },
+    {
+      "path": "registry/db/scripts/migrate.ts",
+      "content": "/**\n * Apply the versioned SQL migrations in ./drizzle.\n * Prefer this over `drizzle-kit push` for anything shared or long-lived.\n */\nimport { drizzle } from \"drizzle-orm/postgres-js\"\nimport { migrate } from \"drizzle-orm/postgres-js/migrator\"\nimport postgres from \"postgres\"\n\nconst url = process.env.DATABASE_URL\nif (!url) {\n  console.error(\"DATABASE_URL missing: add it to .env first\")\n  process.exit(1)\n}\n\nconsole.log(\"migrate:\", url.replace(/:[^:@/]+@/, \":***@\"))\n\nconst client = postgres(url, { max: 1, connect_timeout: 20 })\nconst db = drizzle(client)\n\ntry {\n  await migrate(db, { migrationsFolder: \"./drizzle\" })\n  console.log(\"migrate ok\")\n} catch (error) {\n  console.error(\"migrate failed:\", error instanceof Error ? error.message : error)\n  process.exit(1)\n} finally {\n  await client.end({ timeout: 5 })\n}\n",
+      "type": "registry:file",
+      "target": "~/scripts/migrate.ts"
+    },
+    {
+      "path": "registry/db/docker-compose.yml",
+      "content": "# Local Postgres only. The app itself runs on the host (`bun dev`).\n# DATABASE_URL in .env.local must match: postgresql://postgres:postgres@localhost:5432/app\n\nservices:\n  db:\n    image: postgres:16-alpine\n    ports:\n      - \"5432:5432\"\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app\n    volumes:\n      - pg_data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d app\"]\n      interval: 5s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  pg_data:\n",
+      "type": "registry:file",
+      "target": "~/docker-compose.yml"
+    }
+  ],
+  "type": "registry:item"
+}

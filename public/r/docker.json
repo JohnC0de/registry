@@ -1,0 +1,33 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "docker",
+  "title": "Production Dockerfile (bun)",
+  "description": "Multi-stage Dockerfile for a vite-built TanStack Start app on Bun, plus serve.ts (serves dist/client statics in front of dist/server/server.js) and .dockerignore. Requires bun.lock. Healthcheck uses /api/health from @john/health.",
+  "devDependencies": [
+    "@types/bun"
+  ],
+  "registryDependencies": [
+    "@john/health"
+  ],
+  "files": [
+    {
+      "path": "registry/docker/Dockerfile",
+      "content": "# syntax=docker/dockerfile:1\n# Production image for a TanStack Start app built with `vite build` and run on Bun.\n\nFROM oven/bun:1 AS build\nWORKDIR /app\nCOPY package.json bun.lock ./\nRUN bun install --frozen-lockfile\nCOPY . .\nRUN bun run build\n\nFROM oven/bun:1 AS deps\nWORKDIR /app\nCOPY package.json bun.lock ./\nRUN bun install --frozen-lockfile --production\n\nFROM oven/bun:1-slim\nWORKDIR /app\nENV NODE_ENV=production PORT=3000\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY --from=build /app/dist ./dist\nCOPY package.json serve.ts ./\nUSER bun\nEXPOSE 3000\n# Liveness only (no DB I/O). /api/health comes from @john/health.\nHEALTHCHECK --interval=30s --timeout=5s --start-period=10s \\\n  CMD [\"bun\", \"-e\", \"const r = await fetch(`http://localhost:${process.env.PORT}/api/health`); process.exit(r.ok ? 0 : 1)\"]\nCMD [\"bun\", \"run\", \"serve.ts\"]\n",
+      "type": "registry:file",
+      "target": "~/Dockerfile"
+    },
+    {
+      "path": "registry/docker/serve.ts",
+      "content": "/// <reference types=\"bun\" />\nimport { join, normalize, sep } from \"node:path\"\n\n/**\n * Production entry for the `vite build` output. `dist/server/server.js` only renders requests, it\n * does not serve `dist/client` (hashed assets, public/ files), so this adds static serving in front.\n */\nconst clientDir = join(import.meta.dir, \"dist\", \"client\")\nconst serverEntry = join(import.meta.dir, \"dist\", \"server\", \"server.js\")\n\nconst { default: app } = (await import(serverEntry)) as {\n  default: { fetch: (request: Request) => Response | Promise<Response> }\n}\n\n/** The file under dist/client for this URL path, or undefined when none exists or it escapes the dir. */\nasync function staticFile(pathname: string) {\n  const path = normalize(join(clientDir, decodeURIComponent(pathname)))\n  if (!path.startsWith(clientDir + sep)) return undefined\n  const file = Bun.file(path)\n  return (await file.exists()) ? file : undefined\n}\n\nconst server = Bun.serve({\n  port: Number(process.env.PORT) || 3000,\n  async fetch(request) {\n    if (request.method === \"GET\" || request.method === \"HEAD\") {\n      const { pathname } = new URL(request.url)\n      const file = await staticFile(pathname)\n      if (file) {\n        // Vite hashes everything under /assets/, so it is safe to cache forever.\n        const cache = pathname.startsWith(\"/assets/\") ? \"public, max-age=31536000, immutable\" : \"no-cache\"\n        return new Response(file, { headers: { \"cache-control\": cache } })\n      }\n    }\n    return app.fetch(request)\n  },\n})\n\nconsole.log(`listening on ${server.url}`)\n",
+      "type": "registry:file",
+      "target": "~/serve.ts"
+    },
+    {
+      "path": "registry/docker/.dockerignore",
+      "content": "node_modules\ndist\n.output\n.tanstack\n.git\n.env\n.env.*\n!.env.example\nDockerfile\n.dockerignore\ndocker-compose.yml\n*.md\n",
+      "type": "registry:file",
+      "target": "~/.dockerignore"
+    }
+  ],
+  "type": "registry:item"
+}

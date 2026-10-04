@@ -1,0 +1,234 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "john",
+  "homepage": "https://github.com/JohnC0de/registry",
+  "items": [
+    {
+      "name": "env",
+      "type": "registry:item",
+      "title": "Server env",
+      "description": "Zod-validated getServerEnv() (DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL). Parsed on first use, so vite build needs no secrets.",
+      "dependencies": [
+        "zod"
+      ],
+      "envVars": {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/app",
+        "BETTER_AUTH_SECRET": "change-me",
+        "BETTER_AUTH_URL": "http://localhost:3000"
+      },
+      "files": [
+        {
+          "path": "registry/env/src/env.ts",
+          "type": "registry:file",
+          "target": "~/src/env.ts"
+        }
+      ]
+    },
+    {
+      "name": "db",
+      "type": "registry:item",
+      "title": "Drizzle + Postgres",
+      "description": "Cached drizzle client (getDb), shared timestamp columns, drizzle.config.ts (schema/*.ts), scripts/migrate.ts and a local Postgres docker-compose.yml. package.json scripts cannot ship; add them: { \"db:start\": \"docker compose up -d\", \"db:generate\": \"drizzle-kit generate\", \"db:migrate\": \"bun run scripts/migrate.ts\", \"db:studio\": \"drizzle-kit studio\" }. Then run db:start, db:generate and db:migrate.",
+      "dependencies": [
+        "drizzle-orm",
+        "postgres"
+      ],
+      "devDependencies": [
+        "drizzle-kit"
+      ],
+      "registryDependencies": [
+        "@john/env"
+      ],
+      "files": [
+        {
+          "path": "registry/db/src/lib/db/index.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/db/index.ts"
+        },
+        {
+          "path": "registry/db/src/lib/db/schema/columns.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/db/schema/columns.ts"
+        },
+        {
+          "path": "registry/db/drizzle.config.ts",
+          "type": "registry:file",
+          "target": "~/drizzle.config.ts"
+        },
+        {
+          "path": "registry/db/scripts/migrate.ts",
+          "type": "registry:file",
+          "target": "~/scripts/migrate.ts"
+        },
+        {
+          "path": "registry/db/docker-compose.yml",
+          "type": "registry:file",
+          "target": "~/docker-compose.yml"
+        }
+      ]
+    },
+    {
+      "name": "auth-gate",
+      "type": "registry:item",
+      "title": "Better Auth gate",
+      "description": "Email/password Better Auth (Drizzle adapter), requireUser() for server fns, dev origin auto-detection (loopback + *.localhost) with a production pin to BETTER_AUTH_URL, /api/auth/* route, _authed layout, login page. After adding: run db:generate and db:migrate for the auth tables.",
+      "dependencies": [
+        "better-auth"
+      ],
+      "devDependencies": [
+        "@types/bun"
+      ],
+      "registryDependencies": [
+        "@john/env",
+        "@john/db",
+        "button",
+        "input",
+        "label"
+      ],
+      "files": [
+        {
+          "path": "registry/auth-gate/src/lib/auth/server.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/auth/server.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/lib/auth/session.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/auth/session.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/lib/auth/client.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/auth/client.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/lib/auth/origins.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/auth/origins.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/lib/auth/origins.test.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/auth/origins.test.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/lib/db/schema/auth.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/db/schema/auth.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/routes/api/auth/$.ts",
+          "type": "registry:file",
+          "target": "~/src/routes/api/auth/$.ts"
+        },
+        {
+          "path": "registry/auth-gate/src/routes/_authed.tsx",
+          "type": "registry:file",
+          "target": "~/src/routes/_authed.tsx"
+        },
+        {
+          "path": "registry/auth-gate/src/routes/login.tsx",
+          "type": "registry:file",
+          "target": "~/src/routes/login.tsx"
+        },
+        {
+          "path": "registry/auth-gate/src/features/auth/login-page.tsx",
+          "type": "registry:file",
+          "target": "~/src/features/auth/login-page.tsx"
+        }
+      ]
+    },
+    {
+      "name": "owned-table",
+      "type": "registry:item",
+      "title": "User-owned table (notes demo)",
+      "description": "The ownership pattern: notes table with indexed userId, server fns that scope every query by the session user, zod schemas + test, page and /notes route under _authed. Copy it for real tables, then delete the demo. After adding: run db:generate and db:migrate.",
+      "dependencies": [
+        "zod"
+      ],
+      "devDependencies": [
+        "@types/bun"
+      ],
+      "registryDependencies": [
+        "@john/auth-gate"
+      ],
+      "files": [
+        {
+          "path": "registry/owned-table/src/lib/db/schema/notes-table.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/db/schema/notes-table.ts"
+        },
+        {
+          "path": "registry/owned-table/src/lib/notes/schemas.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/notes/schemas.ts"
+        },
+        {
+          "path": "registry/owned-table/src/lib/notes/schemas.test.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/notes/schemas.test.ts"
+        },
+        {
+          "path": "registry/owned-table/src/lib/notes/server.ts",
+          "type": "registry:file",
+          "target": "~/src/lib/notes/server.ts"
+        },
+        {
+          "path": "registry/owned-table/src/features/notes/notes-page.tsx",
+          "type": "registry:file",
+          "target": "~/src/features/notes/notes-page.tsx"
+        },
+        {
+          "path": "registry/owned-table/src/routes/_authed/notes.tsx",
+          "type": "registry:file",
+          "target": "~/src/routes/_authed/notes.tsx"
+        }
+      ]
+    },
+    {
+      "name": "health",
+      "type": "registry:item",
+      "title": "Health endpoint",
+      "description": "GET /api/health: liveness without I/O; ?deep=1 also pings Postgres and answers 503 when it is down.",
+      "registryDependencies": [
+        "@john/db"
+      ],
+      "files": [
+        {
+          "path": "registry/health/src/routes/api/health.ts",
+          "type": "registry:file",
+          "target": "~/src/routes/api/health.ts"
+        }
+      ]
+    },
+    {
+      "name": "docker",
+      "type": "registry:item",
+      "title": "Production Dockerfile (bun)",
+      "description": "Multi-stage Dockerfile for a vite-built TanStack Start app on Bun, plus serve.ts (serves dist/client statics in front of dist/server/server.js) and .dockerignore. Requires bun.lock. Healthcheck uses /api/health from @john/health.",
+      "devDependencies": [
+        "@types/bun"
+      ],
+      "registryDependencies": [
+        "@john/health"
+      ],
+      "files": [
+        {
+          "path": "registry/docker/Dockerfile",
+          "type": "registry:file",
+          "target": "~/Dockerfile"
+        },
+        {
+          "path": "registry/docker/serve.ts",
+          "type": "registry:file",
+          "target": "~/serve.ts"
+        },
+        {
+          "path": "registry/docker/.dockerignore",
+          "type": "registry:file",
+          "target": "~/.dockerignore"
+        }
+      ]
+    }
+  ]
+}

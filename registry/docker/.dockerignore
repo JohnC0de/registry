@@ -1,0 +1,12 @@
+node_modules
+dist
+.output
+.tanstack
+.git
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore
+docker-compose.yml
+*.md

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "health",
+  "title": "Health endpoint",
+  "description": "GET /api/health: liveness without I/O; ?deep=1 also pings Postgres and answers 503 when it is down.",
+  "registryDependencies": [
+    "@john/db"
+  ],
+  "files": [
+    {
+      "path": "registry/health/src/routes/api/health.ts",
+      "content": "import { createFileRoute } from \"@tanstack/react-router\"\nimport { sql } from \"drizzle-orm\"\n\nimport { getDb } from \"@/lib/db\"\n\n/**\n * Liveness by default: no I/O, safe as a container healthcheck.\n * `?deep=1` also pings Postgres and answers 503 when it is unreachable - that is the readiness\n * probe, and it is opt-in so a DB blip never restarts a healthy process.\n */\nexport const Route = createFileRoute(\"/api/health\")({\n  server: {\n    handlers: {\n      GET: async ({ request }) => {\n        const base = { ok: true, ts: new Date().toISOString() }\n        const deep = new URL(request.url).searchParams.get(\"deep\")\n        if (deep !== \"1\" && deep !== \"true\") return Response.json(base)\n\n        try {\n          await getDb().execute(sql`select 1`)\n          return Response.json({ ...base, db: \"up\" })\n        } catch (error) {\n          console.error(\"health deep check failed\", error)\n          return Response.json({ ...base, ok: false, db: \"down\" }, { status: 503 })\n        }\n      },\n    },\n  },\n})\n",
+      "type": "registry:file",
+      "target": "~/src/routes/api/health.ts"
+    }
+  ],
+  "type": "registry:item"
+}
