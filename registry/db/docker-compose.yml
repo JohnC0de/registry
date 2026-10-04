@@ -1,11 +1,11 @@
 # Local Postgres only. The app itself runs on the host (`bun dev`).
-# DATABASE_URL in .env.local must match: postgresql://postgres:postgres@localhost:5432/app
+# DATABASE_URL in .env.local must match (set DB_PORT to move the host port): postgresql://postgres:postgres@localhost:5432/app
 
 services:
   db:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

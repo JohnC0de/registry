@@ -10,6 +10,10 @@ export const createNoteInput = z.object({
   body: z.string().trim().max(10_000).optional(),
 })
 
+export const updateNoteInput = createNoteInput.extend({
+  id: z.string().min(1),
+})
+
 export const deleteNoteInput = z.object({
   id: z.string().min(1),
 })

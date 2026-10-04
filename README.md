@@ -24,7 +24,7 @@ Built for a fresh `@tanstack/cli create` scaffold (Tailwind 4, shadcn new-york) 
 | `env` | `src/env.ts`: zod `getServerEnv()` (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`), parsed on first use so builds need no secrets | none |
 | `db` | drizzle client `getDb()`, shared `timestamps` columns, `drizzle.config.ts` (`src/lib/db/schema/*.ts`), `scripts/migrate.ts`, Postgres `docker-compose.yml` | `env` |
 | `auth-gate` | Better Auth (email + password), `requireUser()`, dev origin detection (loopback + `*.localhost`, prod pinned to `BETTER_AUTH_URL`) with tests, `/api/auth/*`, `_authed` layout, `/login` | `env`, `db`, shadcn `button` `input` `label` |
-| `owned-table` | The ownership pattern: `notes` table with indexed `userId`, server fns scoped by session user, zod schemas + tests, `/notes` page | `auth-gate` |
+| `owned-table` | The ownership pattern: `notes` table with indexed `userId`, list/create/update/delete server fns scoped by session user, zod schemas + tests, `/notes` page | `auth-gate` |
 | `health` | `GET /api/health` (liveness, no I/O) and `?deep=1` (pings Postgres, 503 when down) | `db` |
 | `docker` | Multi-stage `Dockerfile` for the vite build on Bun, `serve.ts` (static assets + SSR handler), `.dockerignore` | `health` |
 
@@ -73,4 +73,8 @@ bun run verify   # local end-to-end check, no CI
 
 `verify` builds the registry, scaffolds a fresh app with `@tanstack/cli`, rewrites `#/` to `@/`, installs all items from a
 local static server, then runs `bun install`, `vite build`, `tsc --noEmit`, `bun test`, boots `serve.ts` (page, asset,
-health, path traversal), and builds the Docker image when a daemon is available. Run it before every push.
+health, path traversal), then runs the app against a real Postgres (compose project with a unique name and port, always torn
+down): `db:generate`, `db:migrate`, two Better Auth sign-ups, and the notes server fns over HTTP. It asserts that user B cannot
+list, update or delete user A's note, that a client-supplied `userId` is ignored, and that unauthenticated calls and `/notes`
+redirect to `/login`. Last it builds the Docker image and removes it. Docker is required. Run it before every push.
+`VERIFY_KEEP=1` keeps the temp app on success.

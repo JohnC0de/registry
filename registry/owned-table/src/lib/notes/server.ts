@@ -1,10 +1,11 @@
+import { notFound } from "@tanstack/react-router"
 import { createServerFn } from "@tanstack/react-start"
 import { and, desc, eq } from "drizzle-orm"
 
 import { requireUser } from "@/lib/auth/server"
 import { getDb } from "@/lib/db"
 import { notes } from "@/lib/db/schema/notes-table"
-import { createNoteInput, deleteNoteInput } from "@/lib/notes/schemas"
+import { createNoteInput, deleteNoteInput, updateNoteInput } from "@/lib/notes/schemas"
 
 /**
  * Ownership pattern - copy this for every user-owned table. Reads and writes are scoped by
@@ -33,6 +34,20 @@ export const $createNote = createServerFn({ method: "POST" })
         body: data.body ?? "",
       })
       .returning()
+    return row
+  })
+
+export const $updateNote = createServerFn({ method: "POST" })
+  .validator(updateNoteInput)
+  .handler(async ({ data }) => {
+    const user = await requireUser()
+    const [row] = await getDb()
+      .update(notes)
+      .set({ title: data.title, body: data.body ?? "" })
+      .where(and(eq(notes.id, data.id), eq(notes.userId, user.id)))
+      .returning()
+    // Someone else's id matches no row, which is indistinguishable from a missing one.
+    if (!row) throw notFound()
     return row
   })
 

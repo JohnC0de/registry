@@ -40,7 +40,7 @@
     },
     {
       "path": "registry/db/docker-compose.yml",
-      "content": "# Local Postgres only. The app itself runs on the host (`bun dev`).\n# DATABASE_URL in .env.local must match: postgresql://postgres:postgres@localhost:5432/app\n\nservices:\n  db:\n    image: postgres:16-alpine\n    ports:\n      - \"5432:5432\"\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app\n    volumes:\n      - pg_data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d app\"]\n      interval: 5s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  pg_data:\n",
+      "content": "# Local Postgres only. The app itself runs on the host (`bun dev`).\n# DATABASE_URL in .env.local must match (set DB_PORT to move the host port): postgresql://postgres:postgres@localhost:5432/app\n\nservices:\n  db:\n    image: postgres:16-alpine\n    ports:\n      - \"${DB_PORT:-5432}:5432\"\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app\n    volumes:\n      - pg_data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d app\"]\n      interval: 5s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  pg_data:\n",
       "type": "registry:file",
       "target": "~/docker-compose.yml"
     }
