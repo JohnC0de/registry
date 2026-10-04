@@ -170,6 +170,10 @@ let imageBuilt = false
 let server: ReturnType<typeof Bun.serve> | undefined
 try {
   await run("build registry", [bun, "run", "build"], root)
+  // CRLF checked out on Windows would be baked (JSON-escaped) into every shipped file.
+  for (const file of await readdir(join(root, "public", "r"))) {
+    if ((await readFile(join(root, "public", "r", file), "utf8")).includes("\\r\\n")) throw new Error(`public/r/${file} contains CRLF line endings`)
+  }
 
   server = Bun.serve({ port: 0, fetch: (req) => new Response(Bun.file(join(root, "public", "r", new URL(req.url).pathname))) })
   const registryUrl = `http://localhost:${server.port}`
