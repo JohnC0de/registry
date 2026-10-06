@@ -1,10 +1,13 @@
+import "@tanstack/react-start/server-only"
+
 import { redirect } from "@tanstack/react-router"
-import { getRequest } from "@tanstack/react-start/server"
+import { getRequest, setResponseHeader } from "@tanstack/react-start/server"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { getServerEnv } from "@/env"
+import type { ServerEnv } from "@/env"
 import { resolveAllowedHosts } from "@/lib/auth/origins"
 import { getDb } from "@/lib/db"
 import * as schema from "@/lib/db/schema/auth"
@@ -17,21 +20,17 @@ export type SessionUser = {
 }
 
 /**
- * Dual local modes without flipping .env:
- * - plain Vite: Host is loopback (+ port) to dev wildcard patterns
- * - Portless: Host is `*.localhost`, public URL in `PORTLESS_URL`, plus
- *   x-forwarded-host / x-forwarded-proto for protocol=auto
- *
- * Production stays pinned to BETTER_AUTH_URL (+ optional trusted-origins env).
- * Do not hard-code project hostname or port here - see `origins.ts`.
+ * Local dev works without flipping .env: plain Vite (loopback Host) and Portless (`*.localhost`,
+ * public URL in PORTLESS_URL). Production stays pinned to BETTER_AUTH_URL plus the optional
+ * BETTER_AUTH_TRUSTED_ORIGINS. Do not hard-code a hostname or port; see `origins.ts`.
  */
-function resolveBaseURL(env: ReturnType<typeof getServerEnv>) {
-  const extra = process.env.BETTER_AUTH_TRUSTED_ORIGINS
+function resolveBaseURL(env: ServerEnv) {
+  const extra = env.BETTER_AUTH_TRUSTED_ORIGINS
   return {
     allowedHosts: resolveAllowedHosts({
       nodeEnv: env.NODE_ENV,
       betterAuthUrl: env.BETTER_AUTH_URL,
-      portlessUrl: process.env.PORTLESS_URL,
+      portlessUrl: env.PORTLESS_URL,
       extraTrustedOrigins: extra
         ? extra
             .split(",")
@@ -73,10 +72,13 @@ function createAuth() {
       // transport exists - enabling it before that locks every new signup out.
       minPasswordLength: 12,
     },
+    // tanstackStartCookies() MUST stay the LAST plugin: any plugin after it loses its Set-Cookie
+    // headers without an error (TanStack/router#8911). Add new plugins above it.
     plugins: [tanstackStartCookies()],
   })
 }
 
+// oxlint-disable-next-line anti-slop/no-return-type-utility -- Better Auth's generic return type has no writable name; the plugin list shapes it.
 export type Auth = ReturnType<typeof createAuth>
 
 let authInstance: Auth | undefined
@@ -99,12 +101,12 @@ export async function getSessionUser(headers: Headers): Promise<SessionUser | nu
 }
 
 /**
- * The auth gate for every server fn - call it first, do not invent an error class.
- * A thrown `redirect()` is the only thing Start maps to real navigation: the handler serializes it
- * and the client (`useServerFn`, loaders, `beforeLoad`) follows it. A custom Error would serialize
- * as an opaque 500 and land in the catch boundary instead.
+ * The auth gate for every server fn: call it first. A thrown `redirect()` is the only error Start
+ * turns into navigation; a custom Error becomes an opaque 500. It also marks the response
+ * `no-store`, so no proxy or browser cache keeps a per-user answer.
  */
 export async function requireUser(): Promise<SessionUser> {
+  setResponseHeader("Cache-Control", "no-store")
   const user = await getSessionUser(getRequest().headers)
   if (!user) throw redirect({ to: "/login" })
   return user

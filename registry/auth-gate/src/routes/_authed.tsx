@@ -1,8 +1,8 @@
 import { Link, Outlet, createFileRoute, redirect, useRouter } from "@tanstack/react-router"
 
 import { Button } from "@/components/ui/button"
-import { $getSessionUser } from "@/lib/auth/session"
 import { signOut } from "@/lib/auth/client"
+import { $getSessionUser } from "@/lib/auth/session"
 
 /**
  * Everything under src/routes/_authed/ requires a session. The gate runs in `beforeLoad`, so a
@@ -14,6 +14,8 @@ export const Route = createFileRoute("/_authed")({
     if (!user) throw redirect({ to: "/login" })
     return { user }
   },
+  // The page HTML names the signed-in user: no shared or browser cache may keep it.
+  headers: () => ({ "Cache-Control": "no-store" }),
   component: AuthedLayout,
 })
 

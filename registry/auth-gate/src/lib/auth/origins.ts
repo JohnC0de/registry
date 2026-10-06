@@ -28,12 +28,9 @@ export function hostFromUrlOrPattern(value: string): string {
 }
 
 /**
- * Build Better Auth `baseURL.allowedHosts` from env signals - no app-specific
- * hostname or port hard-coding.
- *
- * Development/test: RFC6761 `.localhost` + loopback with any port (plain Vite
- * and Portless worktrees). Production: only hosts derived from `betterAuthUrl`
- * and optional extras.
+ * Better Auth `baseURL.allowedHosts` from env signals, with no hard-coded hostname or port.
+ * Development and test add `.localhost` and loopback on any port. Production allows only
+ * `betterAuthUrl` and the optional extras.
  */
 export function resolveAllowedHosts(input: ResolveAllowedHostsInput): string[] {
   const hosts = new Set<string>()

@@ -8,13 +8,9 @@ import { notes } from "@/lib/db/schema/notes-table"
 import { createNoteInput, deleteNoteInput, updateNoteInput } from "@/lib/notes/schemas"
 
 /**
- * Ownership pattern - copy this for every user-owned table. Reads and writes are scoped by
- * `notes.userId`, never by id alone, and the owner comes from the session, never from the client.
- *
- * Locks follow the same rule (membership before lock): if a path ever takes `FOR UPDATE` or any lock
- * helper, it must filter by owner in that same query (`where id = ? and user_id = ?`). Locking by id
- * and checking ownership afterwards lets a non-owner take the lock and stall the owner. Notes has no
- * locking path, so there is nothing to test here; add a test with the first one.
+ * Ownership pattern: copy it for every user-owned table. Scope reads and writes by `notes.userId`,
+ * never by id alone. The owner comes from the session, never from the client.
+ * A lock must filter by owner in the same query (`.agents/data-access.md`).
  */
 
 export const $listNotes = createServerFn({ method: "GET" }).handler(async () => {
@@ -46,11 +42,12 @@ export const $updateNote = createServerFn({ method: "POST" })
   .validator(updateNoteInput)
   .handler(async ({ data }) => {
     const user = await requireUser()
-    const [row] = await getDb()
+    const rows = await getDb()
       .update(notes)
       .set({ title: data.title, body: data.body ?? "" })
       .where(and(eq(notes.id, data.id), eq(notes.userId, user.id)))
       .returning()
+    const row = rows.at(0)
     // Someone else's id matches no row, which is indistinguishable from a missing one.
     if (!row) throw notFound()
     return row

@@ -1,3 +1,5 @@
+import "@tanstack/react-start/server-only"
+
 import { inspect } from "node:util"
 import { z } from "zod"
 
@@ -43,6 +45,9 @@ const serverSchema = z.object({
   DB_LOCK_TIMEOUT_MS: positiveInt.default(2_000),
   DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: positiveInt.default(10_000),
   DB_APPLICATION_NAME: z.string().min(1).default("app"),
+  // Better Auth host allowlist inputs, read by src/lib/auth/server.ts. Comma-separated origins.
+  BETTER_AUTH_TRUSTED_ORIGINS: z.string().min(1).optional(),
+  PORTLESS_URL: z.url().optional(),
 })
 
 export type ServerEnv = z.infer<typeof serverSchema>

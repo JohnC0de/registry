@@ -1,15 +1,24 @@
 /**
- * Local end-to-end check (no CI): build the registry, scaffold a fresh @tanstack/cli app, install every
- * item from the built files, then typecheck, build, test and boot the production entry.
+ * Local end-to-end check (no CI): build the registry, scaffold a fresh @tanstack/cli app the way
+ * `p new --template web` does (same flags, `p adopt`, pinned shadcn), install every item from the
+ * built files, then lint, typecheck, build, test, boot the production entry and run it against Postgres.
  * Any failing step throws and exits non-zero.
  */
+import { existsSync } from "node:fs"
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const root = join(import.meta.dir, "..")
-const items = ["env", "db", "auth-gate", "owned-table", "health", "docker"] as const
+const items = ["env", "db", "auth-gate", "owned-table", "health", "docker", "guards"] as const
 const bun = process.execPath
+const TANSTACK_CLI = "@tanstack/cli@0.71.1"
+const SHADCN = "shadcn@4.21.1"
+
+type RegistryJson = { items: { name: string; envVars?: Record<string, string>; files: { target: string }[] }[] }
+const registryJson = JSON.parse(await readFile(join(root, "registry.json"), "utf8")) as RegistryJson
+/** Files the registry ships, as paths inside a consumer app. Lint and format findings here fail verify. */
+const shippedFiles = new Set(registryJson.items.flatMap((item) => item.files.map((file) => file.target.replace(/^~\//, ""))))
 
 async function run(label: string, argv: string[], cwd: string, env: Record<string, string> = {}) {
   console.log(`\n=== ${label}: ${argv.join(" ")}`)
@@ -129,7 +138,150 @@ async function smokeServe(app: string) {
 async function capture(argv: string[], cwd: string, env: Record<string, string>) {
   const proc = Bun.spawn(argv, { cwd, env: { ...process.env, ...env }, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
-  return { code, output: out + err }
+  return { code, output: out + err, stdout: out }
+}
+
+/** The way `p new` leaves an app: p adopt (lint/format/fallow presets), then a clean install. */
+async function adoptAndInstall(app: string) {
+  await run("git init", ["git", "init", "-q", "-b", "main"], app)
+  await run("p adopt", ["p", "adopt", app], app)
+  await run("install (adopted)", [bun, "install"], app)
+}
+
+/** What `p new` adds because a registry item cannot ship package.json scripts or .env.example. */
+async function addPNewFiles(app: string) {
+  const pkgPath = join(app, "package.json")
+  const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as { scripts: Record<string, string> }
+  pkg.scripts = {
+    ...pkg.scripts,
+    test: "bun test --pass-with-no-tests",
+    "build:check": "bun scripts/build-check.ts",
+    "db:start": "docker compose up -d",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run scripts/migrate.ts",
+    "db:migrate:production": "bun run scripts/migrate-production.ts",
+    "db:studio": "drizzle-kit studio",
+  }
+  await writeFile(pkgPath, JSON.stringify(pkg, null, 2))
+  const envVars = registryJson.items.flatMap((item) => Object.entries(item.envVars ?? {}))
+  await writeFile(join(app, ".env.example"), `${envVars.map(([key, value]) => `${key}=${value}`).join("\n")}\n`)
+}
+
+/**
+ * Lint and format the way p does it. Findings in starter files (integrations, router, ui/button) are
+ * allowed; any finding in a file the registry ships fails verify.
+ */
+async function lintAndFormat(app: string) {
+  console.log("\n=== lint and format:check (registry-shipped files must be clean)")
+  const lint = await capture([bun, "run", "lint", "--format", "json"], app, {})
+  let diagnostics: { filename: string; code: string; message: string; labels?: { span?: { line?: number } }[] }[]
+  try {
+    diagnostics = (JSON.parse(lint.stdout) as { diagnostics: typeof diagnostics }).diagnostics
+  } catch {
+    throw new Error(`lint did not print JSON (exit ${lint.code}): ${lint.output.slice(0, 2000)}`)
+  }
+  if (!Array.isArray(diagnostics)) throw new Error("lint JSON has no diagnostics array")
+  const ours = diagnostics.filter((d) => shippedFiles.has(d.filename.replaceAll("\\", "/")))
+  console.log(`lint: ${diagnostics.length} findings, ${ours.length} in registry files, ${diagnostics.length - ours.length} in starter files (allowed)`)
+  if (ours.length > 0) {
+    const lines = ours.map((d) => `  ${d.filename}:${d.labels?.[0]?.span?.line ?? "?"} ${d.code} ${d.message.split("\n")[0]}`)
+    throw new Error(`lint findings in registry files:\n${lines.join("\n")}`)
+  }
+
+  const format = await capture([bun, "run", "format:check"], app, {})
+  const unformatted = [...format.output.matchAll(/^(\S.*?) \(\d+ms\)$/gmu)].map((m) => (m[1] ?? "").replaceAll("\\", "/"))
+  if (unformatted.length === 0 && format.code !== 0) throw new Error(`format:check failed with no file list: ${format.output.slice(0, 2000)}`)
+  const badOurs = unformatted.filter((file) => shippedFiles.has(file))
+  console.log(`format: ${unformatted.length} unformatted files, ${badOurs.length} in registry files`)
+  if (badOurs.length > 0) throw new Error(`unformatted registry files: ${badOurs.join(", ")}`)
+}
+
+/**
+ * Import protection: a client route that imports getServerEnv must fail `vite build`. Without the
+ * server-only marker in src/env.ts the build would pass and ship server code to dist/client.
+ */
+async function serverOnlyProof(app: string) {
+  console.log("\n=== server-only: a client import of getServerEnv must fail the build")
+  const probe = join(app, "src", "routes", "leak-probe.tsx")
+  await writeFile(
+    probe,
+    `import { createFileRoute } from "@tanstack/react-router"\nimport { getServerEnv } from "@/env"\n\nexport const Route = createFileRoute("/leak-probe")({\n  component: () => <p>{getServerEnv().NODE_ENV}</p>,\n})\n`,
+  )
+  try {
+    const build = await capture([bun, "x", "vite", "build"], app, {})
+    if (build.code === 0) throw new Error("vite build passed although a client route imports getServerEnv")
+    if (!/import-protection|Import denied/iu.test(build.output)) throw new Error(`build failed, but not with import-protection: ${build.output.slice(-1500)}`)
+    console.log("server-only: build failed with import-protection, as required")
+  } finally {
+    await rm(probe, { force: true })
+  }
+  await rm(join(app, "dist"), { recursive: true, force: true })
+}
+
+/** build:check must fail on a leaked secret and on a build that changes the tracked route tree. */
+async function buildCheckProof(app: string) {
+  console.log("\n=== build:check: it must catch a leaked secret and a changed route tree")
+  const viteConfig = join(app, "vite.config.ts")
+  const indexRoute = join(app, "src", "routes", "index.tsx")
+  const [viteOriginal, indexOriginal] = await Promise.all([readFile(viteConfig, "utf8"), readFile(indexRoute, "utf8")])
+  try {
+    // A `define` of a server env var puts its value into the client bundle: the exact leak the canary scan exists for.
+    if (!viteOriginal.includes("plugins:")) throw new Error("scaffold changed: vite.config.ts has no plugins key")
+    await writeFile(viteConfig, viteOriginal.replace("plugins:", "define: { __LEAK__: JSON.stringify(process.env.BETTER_AUTH_SECRET) },\n  plugins:"))
+    await writeFile(indexRoute, `declare const __LEAK__: string\n${indexOriginal.replace("<h1>", "<h1 title={__LEAK__}>")}`)
+    const leak = await capture([bun, "run", "build:check"], app, {})
+    if (leak.code === 0 || !leak.output.includes("BETTER_AUTH_SECRET")) throw new Error(`build:check missed a leaked secret (exit ${leak.code}): ${leak.output.slice(-800)}`)
+  } finally {
+    await writeFile(viteConfig, viteOriginal)
+    await writeFile(indexRoute, indexOriginal)
+  }
+
+  const probe = join(app, "src", "routes", "tree-probe.tsx")
+  await writeFile(probe, `import { createFileRoute } from "@tanstack/react-router"\n\nexport const Route = createFileRoute("/tree-probe")({ component: () => <p>probe</p> })\n`)
+  try {
+    const stale = await capture([bun, "run", "build:check"], app, {})
+    if (stale.code === 0 || !stale.output.includes("routeTree.gen.ts")) throw new Error(`build:check missed a changed route tree (exit ${stale.code}): ${stale.output.slice(-800)}`)
+  } finally {
+    await rm(probe, { force: true })
+  }
+  await run("restore the route tree", [bun, "x", "vite", "build"], app)
+}
+
+/** The Coolify compose file: one-shot migrate, app waits for it, no secret baked into the image. */
+async function coolifyCompose(app: string) {
+  console.log("\n=== coolify compose and image secrets")
+  const text = await readFile(join(app, "docker-compose.coolify.yml"), "utf8")
+  for (const needle of ['restart: "no"', "exclude_from_hc: true", "condition: service_completed_successfully", "scripts/migrate.ts"]) {
+    if (!text.includes(needle)) throw new Error(`docker-compose.coolify.yml lacks ${needle}`)
+  }
+  // `exclude_from_hc` is a Coolify key: plain docker compose rejects it, so validate a copy without it.
+  const plain = join(app, "docker-compose.plain.yml")
+  await writeFile(plain, text.replace(/^\s*exclude_from_hc: true\n/mu, ""))
+  try {
+    const env = { DATABASE_URL: "postgresql://x", BETTER_AUTH_SECRET: "x", BETTER_AUTH_URL: "http://x" }
+    await run("compose config", ["docker", "compose", "-f", plain, "config", "--quiet"], app, env)
+  } finally {
+    await rm(plain, { force: true })
+  }
+  const dockerfile = await readFile(join(app, "Dockerfile"), "utf8")
+  if (/^\s*(?:ARG|ENV)\s+\w*(?:SECRET|PASSWORD|DATABASE_URL|TOKEN)/imu.test(dockerfile)) throw new Error("Dockerfile bakes a secret as ARG or ENV")
+  if (/^\s*ARG\s+(?!VITE_)/mu.test(dockerfile)) throw new Error("Dockerfile has a build ARG that is not VITE_*")
+}
+
+/** The image runs migrations against a fresh database: the tables must exist afterwards. */
+async function imageMigrate(app: string, compose: string[], dbPort: number, env: Record<string, string>, image: string) {
+  console.log("\n=== image migrate (fresh database)")
+  const psql = (db: string, sql: string) => capture([...compose, "exec", "-T", "db", "psql", "-U", "postgres", "-d", db, "-tA", "-c", sql], app, env)
+  const created = await psql("postgres", "create database migrate_probe")
+  if (created.code !== 0) throw new Error(`could not create the probe database: ${created.output}`)
+  const url = `postgresql://postgres:postgres@host.docker.internal:${dbPort}/migrate_probe`
+  await run(
+    "docker run migrate",
+    ["docker", "run", "--rm", "--add-host", "host.docker.internal:host-gateway", "-e", `DATABASE_URL=${url}`, image, "bun", "run", "scripts/migrate.ts"],
+    app,
+  )
+  const tables = await psql("migrate_probe", "select count(*) from information_schema.tables where table_schema = 'public' and table_name in ('user', 'session', 'account', 'verification', 'notes')")
+  if (tables.stdout.trim() !== "5") throw new Error(`the image migration made ${tables.stdout.trim()} of 5 tables`)
 }
 
 /** The production migration guard: refuses without a URL or on the dev URL, lists pending without --yes, applies with it. */
@@ -162,7 +314,7 @@ async function migrationGuard(app: string, env: { DATABASE_URL: string }) {
  * The db item's compose file, migrations from drizzle-kit, then the app over HTTP (scripts/e2e.ts):
  * auth gate and ownership against a real Postgres. Compose project and port are unique, and it is always torn down.
  */
-async function e2eWithPostgres(app: string) {
+async function e2eWithPostgres(app: string, image: string) {
   const project = `registry-verify-${crypto.randomUUID().slice(0, 8)}`
   const dbPort = await freePort()
   const env = {
@@ -171,19 +323,6 @@ async function e2eWithPostgres(app: string) {
     BETTER_AUTH_SECRET: crypto.randomUUID() + crypto.randomUUID(),
   }
   const compose = ["docker", "compose", "-p", project]
-
-  // What the README tells a consumer to add by hand.
-  const pkgPath = join(app, "package.json")
-  const pkg = JSON.parse(await readFile(pkgPath, "utf8"))
-  pkg.scripts = {
-    ...pkg.scripts,
-    "db:start": "docker compose up -d",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun run scripts/migrate.ts",
-    "db:migrate:production": "bun run scripts/migrate-production.ts",
-    "db:studio": "drizzle-kit studio",
-  }
-  await writeFile(pkgPath, JSON.stringify(pkg, null, 2))
 
   try {
     await run("postgres up", [...compose, "up", "-d", "--wait"], app, env)
@@ -198,6 +337,9 @@ async function e2eWithPostgres(app: string) {
     } finally {
       await rm(e2eFile, { force: true })
     }
+    imageBuilt = true
+    await run("docker build", ["docker", "build", "-t", image, "."], app)
+    await imageMigrate(app, compose, dbPort, env, image)
   } finally {
     await run("postgres down", [...compose, "down", "-v"], app, env)
   }
@@ -220,23 +362,30 @@ try {
 
   await run(
     "scaffold",
-    [bun, "x", "@tanstack/cli", "create", "app", "--non-interactive", "--no-git", "--no-install", "--package-manager", "bun", "--add-ons", "shadcn,tanstack-query"],
+    [bun, "x", TANSTACK_CLI, "create", "app", "--non-interactive", "--no-git", "--no-install", "--no-intent", "--blank", "--no-toolchain", "--package-manager", "bun", "--add-ons", "shadcn,tanstack-query"],
     work,
   )
   await rewriteAlias(app)
   await configureComponents(app, registryUrl)
+  await adoptAndInstall(app)
 
-  await run("shadcn add", [bun, "x", "shadcn@latest", "add", ...items.map((i) => `@john/${i}`), "--yes"], app)
+  await run("shadcn add", [bun, "x", SHADCN, "add", ...items.map((i) => `@john/${i}`), "--yes"], app)
   await run("install", [bun, "install"], app)
+  if (existsSync(join(app, "package-lock.json"))) throw new Error("shadcn add used npm: package-lock.json exists")
+  await addPNewFiles(app)
+
   await run("vite build (generates the route tree)", [bun, "x", "vite", "build"], app)
+  await run("track the route tree", ["git", "add", "src/routeTree.gen.ts"], app)
+  await serverOnlyProof(app)
+  await buildCheckProof(app)
+  await lintAndFormat(app)
   await run("typecheck", [bun, "x", "tsc", "--noEmit"], app)
-  await run("test", [bun, "test"], app)
+  await run("test (includes deps.test.ts)", [bun, "run", "test"], app)
+  await run("build:check", [bun, "run", "build:check"], app)
+  await coolifyCompose(app)
   await smokeServe(app)
 
-  await e2eWithPostgres(app)
-
-  imageBuilt = true
-  await run("docker build", ["docker", "build", "-t", imageTag, "."], app)
+  await e2eWithPostgres(app, imageTag)
 
   console.log("\nverify: OK")
   if (process.env.VERIFY_KEEP) console.log(`workdir kept: ${work}`)

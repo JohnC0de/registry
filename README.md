@@ -19,51 +19,67 @@ Built for a fresh `@tanstack/cli create` scaffold (Tailwind 4, shadcn new-york) 
 
 ## Items
 
-| Item | What it adds | Depends on |
-| --- | --- | --- |
-| `env` | `src/env.ts`: zod `getServerEnv()` (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`), parsed on first use so builds need no secrets | none |
-| `db` | drizzle client `getDb()`, shared `timestamps` columns, `drizzle.config.ts` (`src/lib/db/schema/*.ts`), `scripts/migrate.ts`, Postgres `docker-compose.yml` | `env` |
-| `auth-gate` | Better Auth (email + password), `requireUser()`, dev origin detection (loopback + `*.localhost`, prod pinned to `BETTER_AUTH_URL`) with tests, `/api/auth/*`, `_authed` layout, `/login` | `env`, `db`, shadcn `button` `input` `label` |
-| `owned-table` | The ownership pattern: `notes` table with indexed `userId`, list/create/update/delete server fns scoped by session user, zod schemas + tests, `/notes` page | `auth-gate` |
-| `health` | `GET /api/health` (liveness, no I/O) and `?deep=1` (pings Postgres, 503 when down) | `db` |
-| `docker` | Multi-stage `Dockerfile` for the vite build on Bun (base images pinned by digest, typecheck gates the build, non-root `bun` user), `serve.ts` (static assets + SSR handler), `.dockerignore` | `health` |
+| Item | What it adds | Agent doc | Depends on |
+| --- | --- | --- | --- |
+| `env` | `src/env.ts`: zod `getServerEnv()` (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, optional `BETTER_AUTH_TRUSTED_ORIGINS`, `PORTLESS_URL`), parsed on first use so builds need no secrets; server-only marker | `.agents/env.md` | none |
+| `db` | drizzle client `getDb()` (server-only), shared `timestamps` columns, `drizzle.config.ts`, `scripts/migrate.ts`, `scripts/migrate-production.ts` (guarded), Postgres `docker-compose.yml` | `.agents/database.md` | `env` |
+| `auth-gate` | Better Auth (email + password, `tanstackStartCookies()` last), `requireUser()` (sets `no-store`), dev origin detection with tests, `/api/auth/*`, `_authed` layout (`no-store`), `/login` | `.agents/auth.md` | `env`, `db`, shadcn `button` `input` `label` |
+| `owned-table` | Ownership pattern: `notes` table with indexed `userId`, server fns scoped by session user, schemas + tests, `/notes` page, lock ownership rule | `.agents/data-access.md` | `auth-gate` |
+| `health` | `GET /api/health` (liveness, no I/O) and `?deep=1` (pings Postgres, 503 when down) | none | `db` |
+| `docker` | Multi-stage `Dockerfile` (digest-pinned bases, typecheck gate, non-root, ships `drizzle/` and `scripts/migrate.ts`), `serve.ts`, `.dockerignore`, `docker-compose.coolify.yml` | `.agents/deploy.md` | `health` |
+| `guards` | `scripts/build-check.ts` (canary secrets must not reach `dist/client`; build must not change a tracked route tree), `src/deps.test.ts` (one `router-core`, `start-server-core` >= 1.169.39) | `.agents/checks.md` | none |
 
 ```bash
 bunx shadcn@latest add @john/auth-gate      # pulls env + db + button/input/label
 bunx shadcn@latest add @john/owned-table
-bunx shadcn@latest add @john/health @john/docker
+bunx shadcn@latest add @john/health @john/docker @john/guards
 ```
+
+## Kits (what `p new --template web` installs)
+
+| Kit | Items |
+| --- | --- |
+| `none` | `@john/guards` |
+| `auth` | `@john/env` `@john/db` `@john/auth-gate` `@john/health` `@john/docker` `@john/guards` |
+| `full` | `auth` + `@john/owned-table` |
+
+## What `p new` adds (a registry cannot ship these)
+
+`p new` scaffolds with `bunx @tanstack/cli@0.71.1 create <name> --non-interactive --no-git --no-install --no-intent --blank --no-toolchain
+--package-manager bun --add-ons shadcn,tanstack-query`, rewrites `#/` to `@/`, runs `p adopt` (lint, format and fallow presets),
+then `bunx shadcn@4.21.1 add` for the kit. Then it adds:
+
+- `package.json` scripts: `test` (`bun test --pass-with-no-tests`), `build:check` (`bun scripts/build-check.ts`, inside `check`) and, when `db`
+  is present, `db:start`, `db:generate`, `db:migrate`, `db:migrate:production`, `db:studio` (the commands are in the `db` item description).
+- `.env.example` (the keys in the item `envVars`) and a random `BETTER_AUTH_SECRET` in `.env.local`.
+- `AGENTS.md` that tells agents to read the `.agents/*.md` topic docs first.
 
 ## Manual steps for the consumer
 
-- **`package.json` scripts** cannot ship in a registry item. Add them for `db`:
-
-  ```json
-  {
-    "db:start": "docker compose up -d",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun run scripts/migrate.ts",
-    "db:migrate:production": "bun run scripts/migrate-production.ts",
-    "db:studio": "drizzle-kit studio"
-  }
-  ```
-
 - **Migrations are yours.** Items add schema files (`auth.ts`, `notes-table.ts`) but no SQL. After adding
   `auth-gate` or `owned-table`: `bun run db:start`, `bun run db:generate`, `bun run db:migrate`, then commit `drizzle/`.
-- **Production migrations.** `bun run db:migrate:production -- --production-url "$PRODUCTION_DATABASE_URL"` lists pending
-  migrations and changes nothing. Add `--yes` to apply. It refuses to run without the flag, and when the URL equals `DATABASE_URL`
-  (which must be the development database). Run the same migrations on development first.
+- **Commit the route tree.** Commit `src/routeTree.gen.ts`. `build:check` fails when a build changes it.
+- **Production migrations (manual).** `bun run db:migrate:production -- --production-url "$PRODUCTION_DATABASE_URL"` lists pending
+  migrations and changes nothing. Add `--yes` to apply. It refuses to run without the flag, and when the URL equals `DATABASE_URL`.
 - **Database tuning.** `DATABASE_POOL_SIZE` (8), `DB_STATEMENT_TIMEOUT_MS` (10000), `DB_LOCK_TIMEOUT_MS` (2000),
-  `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` (10000) and `DB_APPLICATION_NAME` (`app`) are optional; the defaults apply when unset.
+  `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` (10000) and `DB_APPLICATION_NAME` (`app`) are optional.
 - **Secrets stay out of logs.** `getServerEnv()` returns `DATABASE_URL` and `BETTER_AUTH_SECRET` as `Secret` values that print as
-  `[redacted]` in strings, JSON and console output. Call `.reveal()` only where the value is used. Env errors name the key, never the value.
-- **Locks need an owner filter.** If you add `FOR UPDATE` or any lock helper to an owned table, filter by owner in the same query
-  that takes the lock. Locking by id and checking ownership afterwards lets a non-owner stall the owner. The notes demo has no lock path.
+  `[redacted]`. Call `.reveal()` only where the value is used. Env errors name the key, never the value.
+- **Server-only modules.** `env.ts`, `db/index.ts` and `auth/server.ts` start with `import "@tanstack/react-start/server-only"`.
+  A client import of them fails `vite build`. Do not add the marker to a file that calls `createServerFn`: the client imports those.
+- **Cache.** `requireUser()` and the `_authed` and `login` routes send `Cache-Control: no-store`.
 - **Secret.** `env` writes `BETTER_AUTH_SECRET=change-me` to `.env.local`. It is shorter than 32 chars on purpose,
   so the first request fails loudly. Set a real one: `openssl rand -base64 32`.
 - **Production.** Set `NODE_ENV=production`, `DATABASE_URL`, `BETTER_AUTH_SECRET` and the public HTTPS
   `BETTER_AUTH_URL`. Only that origin is trusted (plus optional `BETTER_AUTH_TRUSTED_ORIGINS`, comma-separated).
-- **Docker.** Needs `bun.lock`. Run migrations separately, for example `bun run db:migrate` against the prod database.
+
+## Coolify
+
+`docker-compose.coolify.yml` (from `docker`) has two services built from the same image: `migrate` runs `bun run scripts/migrate.ts` once
+(`restart: "no"`, `exclude_from_hc: true`) and `app` starts after it with `depends_on: migrate: service_completed_successfully`.
+Use the Docker Compose build pack, point it at this file, and set `DATABASE_URL`, `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` as runtime
+variables. Never pass them as build args: only `VITE_*` values may be. The image needs a committed `drizzle/` and `src/routeTree.gen.ts`.
+`exclude_from_hc` is a Coolify key; plain `docker compose config` rejects it, so remove that line to validate the file locally.
 
 ## Drift checks
 
@@ -73,6 +89,9 @@ Compare a consumer's copy to the registry without writing anything:
 bunx shadcn@latest add @john/auth-gate --diff
 ```
 
+Run it per item (`@john/env`, `@john/db`, `@john/guards`, ...) to see every file that drifted. `p new` should record the registry sha with the
+project so the diff has a known base.
+
 ## Development
 
 ```bash
@@ -81,10 +100,18 @@ bun run build    # shadcn build -> public/r/*.json (commit the output)
 bun run verify   # local end-to-end check, no CI
 ```
 
-`verify` builds the registry, scaffolds a fresh app with `@tanstack/cli`, rewrites `#/` to `@/`, installs all items from a
-local static server, then runs `bun install`, `vite build`, `tsc --noEmit`, `bun test`, boots `serve.ts` (page, asset,
-health, path traversal), then runs the app against a real Postgres (compose project with a unique name and port, always torn
-down): `db:generate`, `db:migrate`, two Better Auth sign-ups, and the notes server fns over HTTP. It asserts that user B cannot
-list, update or delete user A's note, that a client-supplied `userId` is ignored, and that unauthenticated calls and `/notes`
-redirect to `/login`. Last it builds the Docker image and removes it. Docker is required. Run it before every push.
-`VERIFY_KEEP=1` keeps the temp app on success.
+`verify` builds the registry and scaffolds a fresh app the way `p new` does: `@tanstack/cli@0.71.1` with `--blank --no-toolchain`, alias
+rewrite, `git init`, `p adopt`, `bun install`, `shadcn@4.21.1 add` for every item. It then asserts:
+
+- lint and `format:check` are clean in every registry-shipped file (findings in starter files are allowed);
+- a client route that imports `getServerEnv` fails `vite build` with import-protection;
+- `tsc`, `bun test` (including `deps.test.ts`, which also tests itself against crafted lock text) and `build:check` pass;
+- `serve.ts` serves the page, an asset and health, and refuses path traversal;
+- against a real Postgres (unique compose project and port, always torn down): `db:generate`, `db:migrate`, the production migration
+  guard, two sign-ups, sign-in sets a cookie, the notes server fns over HTTP, user B cannot list, update or delete user A's note, a
+  client-supplied `userId` is ignored, signed-out calls and `/notes` redirect to `/login`, authed server fn and `/notes` responses are
+  `no-store`, and a cross-site POST to a server fn answers 403;
+- the Coolify compose file is valid and the Dockerfile bakes no secret; the image builds and its `scripts/migrate.ts` migrates a fresh
+  database inside the image.
+
+Docker is required. Run it before every push. `VERIFY_KEEP=1` keeps the temp app on success.

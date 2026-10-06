@@ -17,11 +17,16 @@ describe("resolveProductionRun", () => {
   })
 
   test("refuses the development database even with --yes", () => {
-    expect(() => resolveProductionRun({ "production-url": dev, yes: true }, dev)).toThrow("development database")
+    expect(() => resolveProductionRun({ "production-url": dev, yes: true }, dev)).toThrow(
+      "development database",
+    )
   })
 
   test("defaults to a dry run and applies only with --yes", () => {
-    expect(resolveProductionRun({ "production-url": prod }, dev)).toEqual({ url: prod, apply: false })
+    expect(resolveProductionRun({ "production-url": prod }, dev)).toEqual({
+      url: prod,
+      apply: false,
+    })
     expect(resolveProductionRun({ "production-url": prod, yes: true }, dev).apply).toBe(true)
   })
 })
@@ -36,14 +41,14 @@ describe("pendingTags", () => {
   }
 
   test("lists entries not applied yet, in journal order", () => {
-    expect(pendingTags(journal, new Set([100]))).toEqual(["0001_b", "0002_c"])
+    expect(pendingTags(journal, [100])).toEqual(["0001_b", "0002_c"])
   })
 
   test("is empty when everything is applied", () => {
-    expect(pendingTags(journal, new Set([100, 200, 300]))).toEqual([])
+    expect(pendingTags(journal, [100, 200, 300])).toEqual([])
   })
 
   test("lists everything for a database with no history", () => {
-    expect(pendingTags(journal, new Set())).toEqual(["0000_a", "0001_b", "0002_c"])
+    expect(pendingTags(journal, [])).toEqual(["0000_a", "0001_b", "0002_c"])
   })
 })

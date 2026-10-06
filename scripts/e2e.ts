@@ -25,7 +25,7 @@ function serverFnIds() {
 }
 const ids = serverFnIds()
 
-type FnResult = { status: number; body: unknown; raw: unknown }
+type FnResult = { status: number; body: unknown; raw: unknown; headers: Headers }
 
 async function callFn(name: string, cookie: string | undefined, data?: unknown): Promise<FnResult> {
   // Start rejects server fn calls without a same-origin Origin header, as a browser would send.
@@ -41,7 +41,7 @@ async function callFn(name: string, cookie: string | undefined, data?: unknown):
   const parsed = res.headers.get("x-tss-serialized") ? fromCrossJSON(json as never, { plugins: [] }) : json
   // Successful calls wrap the handler's return value as `{ result, context }`.
   const result = parsed !== null && typeof parsed === "object" && "result" in parsed ? parsed.result : parsed
-  return { status: res.status, body: result, raw: parsed }
+  return { status: res.status, body: result, raw: parsed, headers: res.headers }
 }
 
 type Note = { id: string; userId: string; title: string }
@@ -57,22 +57,34 @@ function expectLoginRedirect(result: FnResult, what: string) {
   check(JSON.stringify(result.body).includes("/login"), `${what} was not rejected with a /login redirect: ${result.status} ${JSON.stringify(result.body)}`)
 }
 
+const password = "correct horse battery"
+
 async function signUp(name: string) {
+  const email = `${name}-${crypto.randomUUID()}@example.com`
   const res = await fetch(`${base}/api/auth/sign-up/email`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: base },
-    body: JSON.stringify({ email: `${name}-${crypto.randomUUID()}@example.com`, password: "correct horse battery", name }),
+    body: JSON.stringify({ email, password, name }),
   })
   const text = await res.text()
   check(res.ok, `sign-up ${name} answered ${res.status}: ${text}`)
   const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ")
   check(cookie, `sign-up ${name} set no session cookie`)
   const { user } = JSON.parse(text) as { user: { id: string } }
-  return { cookie, id: user.id }
+  return { cookie, id: user.id, email }
 }
 
 const a = await signUp("alice")
 const b = await signUp("bob")
+
+// Sign-in must carry Set-Cookie: tanstackStartCookies() has to be the last Better Auth plugin (better-auth#8911).
+const signIn = await fetch(`${base}/api/auth/sign-in/email`, {
+  method: "POST",
+  headers: { "content-type": "application/json", origin: base },
+  body: JSON.stringify({ email: a.email, password }),
+})
+check(signIn.ok, `sign-in answered ${signIn.status}`)
+check(signIn.headers.getSetCookie().length > 0, "sign-in response carries no Set-Cookie")
 
 // Unauthenticated: server fns and the protected page must reject.
 expectLoginRedirect(await callFn("$listNotes", undefined), "unauthenticated $listNotes")
@@ -80,6 +92,22 @@ expectLoginRedirect(await callFn("$createNote", undefined, { title: "nope" }), "
 expectLoginRedirect(await callFn("$deleteNote", undefined, { id: "x" }), "unauthenticated $deleteNote")
 const page = await fetch(`${base}/notes`, { redirect: "manual" })
 check(page.status >= 300 && page.status < 400 && page.headers.get("location")?.includes("/login"), `unauthenticated /notes answered ${page.status} location=${page.headers.get("location")}`)
+
+// Session-dependent responses must not be cached: a server fn answer and the protected page.
+const noStoreFn = await callFn("$listNotes", a.cookie)
+check(noStoreFn.headers.get("cache-control")?.includes("no-store"), `authed server fn cache-control is ${noStoreFn.headers.get("cache-control")}`)
+const authedPage = await fetch(`${base}/notes`, { redirect: "manual", headers: { cookie: a.cookie } })
+check(authedPage.status === 200, `signed-in /notes answered ${authedPage.status}`)
+check(authedPage.headers.get("cache-control")?.includes("no-store"), `signed-in /notes cache-control is ${authedPage.headers.get("cache-control")}`)
+
+// CSRF: Start rejects a cross-site POST to a server fn even with a valid session cookie.
+const csrf = await fetch(`${base}/_serverFn/${ids.get("$createNote")}`, {
+  method: "POST",
+  headers: { "x-tsr-serverFn": "true", accept: "application/json", origin: base, cookie: a.cookie, "content-type": "application/json", "sec-fetch-site": "cross-site" },
+  body: JSON.stringify(await toJSONAsync({ data: { title: "csrf" } })),
+})
+check(csrf.status === 403, `cross-site POST to a server fn answered ${csrf.status}, expected 403`)
+check((await ok<Note[]>(callFn("$listNotes", a.cookie))).length === 0, "the cross-site POST created a note")
 
 // Alice creates a note. A client-supplied userId must not decide the owner.
 const created = await ok<Note>(callFn("$createNote", a.cookie, { title: "alice secret", userId: b.id }))
@@ -108,4 +136,4 @@ check(aliceUpdate.title === "alice edited", "alice cannot update her own note")
 await ok(callFn("$deleteNote", a.cookie, { id: created.id }))
 check((await ok<Note[]>(callFn("$listNotes", a.cookie))).length === 0, "alice cannot delete her own note")
 
-console.log("e2e: ownership and auth gate OK")
+console.log("e2e: ownership, auth gate, no-store, CSRF and Set-Cookie OK")

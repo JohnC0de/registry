@@ -15,8 +15,9 @@ export function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const submitLabel = mode === "sign-in" ? "Sign in" : "Create account"
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
     setPending(true)
@@ -40,9 +41,7 @@ export function LoginPage() {
   return (
     <main className="mx-auto flex min-h-svh max-w-sm flex-col justify-center gap-6 px-6 py-12">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {mode === "sign-in" ? "Sign in" : "Create account"}
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{submitLabel}</h1>
         <p className="text-sm text-muted-foreground">
           {mode === "sign-in" ? "Email and password." : "Passwords must be at least 12 characters."}
         </p>
@@ -81,7 +80,7 @@ export function LoginPage() {
         ) : null}
 
         <Button type="submit" disabled={pending}>
-          {pending ? "…" : mode === "sign-in" ? "Sign in" : "Create account"}
+          {pending ? "…" : submitLabel}
         </Button>
       </form>
 

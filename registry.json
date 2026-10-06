@@ -26,6 +26,11 @@
           "path": "registry/env/src/env.test.ts",
           "type": "registry:file",
           "target": "~/src/env.test.ts"
+        },
+        {
+          "path": "registry/env/.agents/env.md",
+          "type": "registry:file",
+          "target": "~/.agents/env.md"
         }
       ],
       "devDependencies": [
@@ -89,6 +94,11 @@
           "path": "registry/db/src/lib/db/migrations.test.ts",
           "type": "registry:file",
           "target": "~/src/lib/db/migrations.test.ts"
+        },
+        {
+          "path": "registry/db/.agents/database.md",
+          "type": "registry:file",
+          "target": "~/.agents/database.md"
         }
       ]
     },
@@ -160,6 +170,11 @@
           "path": "registry/auth-gate/src/features/auth/login-page.tsx",
           "type": "registry:file",
           "target": "~/src/features/auth/login-page.tsx"
+        },
+        {
+          "path": "registry/auth-gate/.agents/auth.md",
+          "type": "registry:file",
+          "target": "~/.agents/auth.md"
         }
       ]
     },
@@ -207,6 +222,11 @@
           "path": "registry/owned-table/src/routes/_authed/notes.tsx",
           "type": "registry:file",
           "target": "~/src/routes/_authed/notes.tsx"
+        },
+        {
+          "path": "registry/owned-table/.agents/data-access.md",
+          "type": "registry:file",
+          "target": "~/.agents/data-access.md"
         }
       ]
     },
@@ -230,7 +250,7 @@
       "name": "docker",
       "type": "registry:item",
       "title": "Production Dockerfile (bun)",
-      "description": "Multi-stage Dockerfile for a vite-built TanStack Start app on Bun, plus serve.ts (serves dist/client statics in front of dist/server/server.js) and .dockerignore. Requires bun.lock. Healthcheck uses /api/health from @john/health.",
+      "description": "Multi-stage Dockerfile for a vite-built TanStack Start app on Bun, serve.ts (serves dist/client statics in front of dist/server/server.js), .dockerignore, and docker-compose.coolify.yml: the app plus a one-shot migrate service (same image, runs scripts/migrate.ts; the app waits for it). Requires bun.lock, a committed src/routeTree.gen.ts and a committed drizzle/. Secrets are runtime variables, never build args. Healthcheck uses /api/health from @john/health.",
       "devDependencies": [
         "@types/bun"
       ],
@@ -252,6 +272,42 @@
           "path": "registry/docker/.dockerignore",
           "type": "registry:file",
           "target": "~/.dockerignore"
+        },
+        {
+          "path": "registry/docker/docker-compose.coolify.yml",
+          "type": "registry:file",
+          "target": "~/docker-compose.coolify.yml"
+        },
+        {
+          "path": "registry/docker/.agents/deploy.md",
+          "type": "registry:file",
+          "target": "~/.agents/deploy.md"
+        }
+      ]
+    },
+    {
+      "name": "guards",
+      "type": "registry:item",
+      "title": "Build and dependency guards",
+      "description": "scripts/build-check.ts builds with a canary in every non-VITE_ key from .env.example, scans dist/client for it and fails when the build changes a tracked src/routeTree.gen.ts. src/deps.test.ts fails when bun.lock holds two @tanstack/router-core versions or @tanstack/start-server-core is below 1.169.39 (CVE-2026-102989). package.json scripts cannot ship; add: { \"test\": \"bun test --pass-with-no-tests\", \"build:check\": \"bun scripts/build-check.ts\" } and run build:check inside check.",
+      "devDependencies": [
+        "@types/bun"
+      ],
+      "files": [
+        {
+          "path": "registry/guards/scripts/build-check.ts",
+          "type": "registry:file",
+          "target": "~/scripts/build-check.ts"
+        },
+        {
+          "path": "registry/guards/src/deps.test.ts",
+          "type": "registry:file",
+          "target": "~/src/deps.test.ts"
+        },
+        {
+          "path": "registry/guards/.agents/checks.md",
+          "type": "registry:file",
+          "target": "~/.agents/checks.md"
         }
       ]
     }

@@ -1,11 +1,7 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test"
 
-import {
-  hostFromUrlOrPattern,
-  isHostAllowed,
-  resolveAllowedHosts,
-} from "@/lib/auth/origins"
+import { hostFromUrlOrPattern, isHostAllowed, resolveAllowedHosts } from "@/lib/auth/origins"
 
 const prodUrl = "https://app.example.com"
 const localFallback = "https://myapp.localhost"
@@ -99,7 +95,8 @@ describe("resolveAllowedHosts (production)", () => {
 
     expect(hosts).toContain("app.example.com")
     expect(hosts).toContain("myapp.localhost")
-    expect(hosts.some((h) => h === "localhost:*" || h === "*.localhost")).toBe(false)
+    expect(hosts).not.toContain("localhost:*")
+    expect(hosts).not.toContain("*.localhost")
     expect(isHostAllowed("evil.com", hosts)).toBe(false)
     expect(isHostAllowed("other-app.localhost", hosts)).toBe(false)
   })

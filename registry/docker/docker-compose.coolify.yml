@@ -1,0 +1,29 @@
+# Production compose for Coolify (Docker Compose build pack). One image runs both services.
+# Set DATABASE_URL, BETTER_AUTH_SECRET and BETTER_AUTH_URL in Coolify as runtime variables.
+# Never pass them as build args: only VITE_* values may be build args.
+services:
+  migrate:
+    build: .
+    image: app-prod
+    command: ["bun", "run", "scripts/migrate.ts"]
+    restart: "no"
+    exclude_from_hc: true
+    healthcheck:
+      disable: true
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+
+  app:
+    build: .
+    image: app-prod
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set BETTER_AUTH_URL}
+    ports:
+      - "3000"

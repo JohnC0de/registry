@@ -10,9 +10,9 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY . .
-# Typecheck gates the build: a type error fails the image. The route tree is generated first
-# because tsc needs src/routeTree.gen.ts.
-RUN bun x tsr generate && bun x tsc --noEmit && bun run build
+# Typecheck gates the build: a type error fails the image. src/routeTree.gen.ts is committed,
+# so tsc needs no generate step. Build args: only VITE_* values may be passed here, never a secret.
+RUN bun x tsc --noEmit && bun run build
 
 FROM base AS deps
 WORKDIR /app
@@ -25,10 +25,13 @@ ENV NODE_ENV=production PORT=3000
 COPY --from=deps --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=build --chown=bun:bun /app/dist ./dist
 COPY --chown=bun:bun package.json serve.ts ./
+# Migrations run from this same image: `bun run scripts/migrate.ts` (Coolify `migrate` service).
+COPY --chown=bun:bun drizzle ./drizzle
+COPY --chown=bun:bun scripts/migrate.ts ./scripts/migrate.ts
 # Non-root: the image ships the unprivileged `bun` user.
 USER bun
 EXPOSE 3000
-# Liveness only (no DB I/O). /api/health comes from @john/health.
+# Secrets arrive at runtime as environment variables. Liveness only (no DB I/O). /api/health comes from @john/health.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD ["bun", "-e", "const r = await fetch(`http://localhost:${process.env.PORT}/api/health`); process.exit(r.ok ? 0 : 1)"]
 CMD ["bun", "run", "serve.ts"]

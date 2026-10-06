@@ -7,6 +7,7 @@ export default defineConfig({
   dialect: "postgresql",
   casing: "snake_case",
   dbCredentials: {
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- `drizzle-kit generate` needs no connection; commands that do fail with drizzle-kit's own error when this is unset.
     url: process.env.DATABASE_URL!,
   },
 })

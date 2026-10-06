@@ -1,24 +1,25 @@
-import { useRouter } from "@tanstack/react-router"
+import { getRouteApi, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Route } from "@/routes/_authed/notes"
 import { $createNote, $deleteNote } from "@/lib/notes/server"
+
+const route = getRouteApi("/_authed/notes")
 
 /**
  * Loader data + `router.invalidate()` is the default data flow here - no client cache to keep in
  * sync. `useServerFn` is what makes a redirect thrown by the auth gate actually navigate.
  */
 export function NotesPage() {
-  const notes = Route.useLoaderData()
+  const notes = route.useLoaderData()
   const router = useRouter()
   const createNote = useServerFn($createNote)
   const deleteNote = useServerFn($deleteNote)
   const [title, setTitle] = useState("")
 
-  async function add(event: React.FormEvent<HTMLFormElement>) {
+  async function add(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!title.trim()) return
     await createNote({ data: { title } })

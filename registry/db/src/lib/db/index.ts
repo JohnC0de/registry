@@ -1,19 +1,25 @@
+import "@tanstack/react-start/server-only"
+
 import { drizzle } from "drizzle-orm/postgres-js"
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
+import type { Sql } from "postgres"
 
 import { getServerEnv } from "@/env"
 
-const globalForDb = globalThis as unknown as { __db?: ReturnType<typeof createDb> }
+export type Db = PostgresJsDatabase & { $client: Sql }
+
+declare global {
+  // Dev HMR re-evaluates this module; the global slot keeps one pool across reloads.
+  var appDb: Db | undefined
+}
 
 /**
- * Pool size and the server-side guards come from `env` (DATABASE_POOL_SIZE, DB_*_MS,
- * DB_APPLICATION_NAME). The timeouts are the point: a runaway query, a lock wait or a transaction
- * left open by a crashed request fails fast instead of stalling every other request.
- * Pool size is per process: real usage is size x replicas, so size it against the server's
- * `max_connections`. Behind a transaction-mode pooler (PgBouncer, Supavisor) add `prepare: false`;
- * prepared statements do not survive pooled transactions.
+ * Pool size and the server-side guards come from `env`. The timeouts make a runaway query, a lock
+ * wait or a transaction left open fail fast. Pool size is per process: size it against
+ * `max_connections` / replicas. Behind a transaction-mode pooler add `prepare: false`.
  */
-function createDb() {
+function createDb(): Db {
   const env = getServerEnv()
   const client = postgres(env.DATABASE_URL.reveal(), {
     max: env.DATABASE_POOL_SIZE,
@@ -31,9 +37,7 @@ function createDb() {
 }
 
 /** Cached on globalThis so Vite's dev HMR reuses one pool instead of leaking one per reload. */
-export function getDb() {
-  globalForDb.__db ??= createDb()
-  return globalForDb.__db
+export function getDb(): Db {
+  globalThis.appDb ??= createDb()
+  return globalThis.appDb
 }
-
-export type Db = ReturnType<typeof getDb>
