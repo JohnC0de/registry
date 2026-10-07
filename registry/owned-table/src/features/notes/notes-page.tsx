@@ -4,9 +4,63 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { $createNote, $deleteNote } from "@/lib/notes/server"
+import type { Note } from "@/lib/notes/schemas"
+import { $createNote, $deleteNote, $updateNote } from "@/lib/notes/server"
 
 const route = getRouteApi("/_authed/notes")
+
+/** One note: shows the title, or a rename form (Enter saves, Escape cancels, labelled for screen readers). */
+function NoteRow({ note }: { note: Note }) {
+  const router = useRouter()
+  const updateNote = useServerFn($updateNote)
+  const deleteNote = useServerFn($deleteNote)
+  const [draft, setDraft] = useState<string | null>(null)
+
+  async function save(event: React.SubmitEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (draft?.trim()) await updateNote({ data: { id: note.id, title: draft, body: note.body } })
+    setDraft(null)
+    await router.invalidate()
+  }
+
+  async function remove() {
+    await deleteNote({ data: { id: note.id } })
+    await router.invalidate()
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
+      {draft === null ? (
+        <>
+          <span className="text-sm">{note.title}</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDraft(note.title)}>
+              Rename
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => void remove()}>
+              Delete
+            </Button>
+          </div>
+        </>
+      ) : (
+        <form className="flex w-full gap-2" onSubmit={(e) => void save(e)}>
+          <Input
+            ref={(el) => el?.focus()}
+            aria-label={`Rename note ${note.title}`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setDraft(null)
+            }}
+          />
+          <Button type="submit" size="sm">
+            Save
+          </Button>
+        </form>
+      )}
+    </li>
+  )
+}
 
 /**
  * Loader data + `router.invalidate()` is the default data flow here - no client cache to keep in
@@ -16,7 +70,6 @@ export function NotesPage() {
   const notes = route.useLoaderData()
   const router = useRouter()
   const createNote = useServerFn($createNote)
-  const deleteNote = useServerFn($deleteNote)
   const [title, setTitle] = useState("")
 
   async function add(event: React.SubmitEvent<HTMLFormElement>) {
@@ -24,11 +77,6 @@ export function NotesPage() {
     if (!title.trim()) return
     await createNote({ data: { title } })
     setTitle("")
-    await router.invalidate()
-  }
-
-  async function remove(id: string) {
-    await deleteNote({ data: { id } })
     await router.invalidate()
   }
 
@@ -51,15 +99,7 @@ export function NotesPage() {
       ) : (
         <ul className="flex flex-col gap-2">
           {notes.map((note) => (
-            <li
-              key={note.id}
-              className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2"
-            >
-              <span className="text-sm">{note.title}</span>
-              <Button variant="destructive" size="sm" onClick={() => void remove(note.id)}>
-                Delete
-              </Button>
-            </li>
+            <NoteRow key={note.id} note={note} />
           ))}
         </ul>
       )}

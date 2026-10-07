@@ -196,6 +196,41 @@ async function lintAndFormat(app: string) {
   if (badOurs.length > 0) throw new Error(`unformatted registry files: ${badOurs.join(", ")}`)
 }
 
+/** File paths named by a fallow JSON report: every `path` and `files` entry of every finding list. */
+function fallowPaths(report: Record<string, unknown>): string[] {
+  const paths: string[] = []
+  for (const [key, value] of Object.entries(report)) {
+    if (!Array.isArray(value) || key === "next_steps" || key === "file_scores") continue
+    for (const finding of value as { path?: unknown; files?: unknown }[]) {
+      if (typeof finding.path === "string") paths.push(finding.path)
+      if (Array.isArray(finding.files)) paths.push(...finding.files.filter((f): f is string => typeof f === "string"))
+    }
+  }
+  return paths.map((path) => path.replaceAll("\\", "/"))
+}
+
+/**
+ * fallow as p's scaffold runs it (pinned by `p adopt`): `dead-code` (unused exports and files, cycles) and
+ * `health` (complexity). A finding in a registry-shipped file fails verify; starter and dependency findings are allowed.
+ */
+async function fallowGate(app: string) {
+  console.log("\n=== fallow dead-code and health (registry-shipped files must be clean)")
+  for (const command of ["dead-code", "health"]) {
+    const result = await capture([bun, "x", "fallow", command, "--format", "json"], app, {})
+    let report: Record<string, unknown>
+    try {
+      report = JSON.parse(result.stdout) as Record<string, unknown>
+    } catch {
+      throw new Error(`fallow ${command} did not print JSON (exit ${result.code}): ${result.output.slice(0, 2000)}`)
+    }
+    if (report.kind === undefined) throw new Error(`fallow ${command} JSON has no kind: ${result.stdout.slice(0, 500)}`)
+    const all = fallowPaths(report)
+    const ours = all.filter((path) => shippedFiles.has(path))
+    console.log(`fallow ${command}: ${all.length} findings, ${ours.length} in registry files`)
+    if (ours.length > 0) throw new Error(`fallow ${command} findings in registry files: ${[...new Set(ours)].join(", ")}\n${result.stdout.slice(0, 3000)}`)
+  }
+}
+
 /**
  * Import protection: a client route that imports getServerEnv must fail `vite build`. Without the
  * server-only marker in src/env.ts the build would pass and ship server code to dist/client.
@@ -379,6 +414,7 @@ try {
   await serverOnlyProof(app)
   await buildCheckProof(app)
   await lintAndFormat(app)
+  await fallowGate(app)
   await run("typecheck", [bun, "x", "tsc", "--noEmit"], app)
   await run("test (includes deps.test.ts)", [bun, "run", "test"], app)
   await run("build:check", [bun, "run", "build:check"], app)
