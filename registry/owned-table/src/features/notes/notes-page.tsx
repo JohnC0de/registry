@@ -1,6 +1,6 @@
 import { getRouteApi, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,11 +15,26 @@ function NoteRow({ note }: { note: Note }) {
   const updateNote = useServerFn($updateNote)
   const deleteNote = useServerFn($deleteNote)
   const [draft, setDraft] = useState<string | null>(null)
+  const renameButton = useRef<HTMLButtonElement>(null)
+  const returnFocus = useRef(false)
+
+  // Closing the form removes the focused input: put focus back on this note's Rename button.
+  useEffect(() => {
+    if (draft === null && returnFocus.current) {
+      returnFocus.current = false
+      renameButton.current?.focus()
+    }
+  }, [draft])
+
+  function closeEditor() {
+    returnFocus.current = true
+    setDraft(null)
+  }
 
   async function save(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     if (draft?.trim()) await updateNote({ data: { id: note.id, title: draft, body: note.body } })
-    setDraft(null)
+    closeEditor()
     await router.invalidate()
   }
 
@@ -34,7 +49,12 @@ function NoteRow({ note }: { note: Note }) {
         <>
           <span className="text-sm">{note.title}</span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setDraft(note.title)}>
+            <Button
+              ref={renameButton}
+              variant="outline"
+              size="sm"
+              onClick={() => setDraft(note.title)}
+            >
               Rename
             </Button>
             <Button variant="destructive" size="sm" onClick={() => void remove()}>
@@ -50,7 +70,7 @@ function NoteRow({ note }: { note: Note }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") setDraft(null)
+              if (e.key === "Escape") closeEditor()
             }}
           />
           <Button type="submit" size="sm">
