@@ -2,7 +2,7 @@
   "$schema": "https://ui.shadcn.com/schema/registry-item.json",
   "name": "auth-gate",
   "title": "Better Auth gate",
-  "description": "Email/password Better Auth (Drizzle adapter), requireUser() for server fns, dev origin auto-detection (loopback + *.localhost) with a production pin to BETTER_AUTH_URL, /api/auth/* route, _authed layout, login page. After adding: run db:generate and db:migrate for the auth tables.",
+  "description": "Email/password Better Auth (Drizzle adapter), requireUser() for server fns, dev origin auto-detection (loopback + *.localhost) with a production pin to BETTER_AUTH_URL, /api/auth/* route, _authed layout, a minimal protected /account page (the layout needs at least one child route or it clashes with /), login page. After adding: run db:generate and db:migrate for the auth tables.",
   "dependencies": [
     "better-auth"
   ],
@@ -79,9 +79,21 @@
     },
     {
       "path": "registry/auth-gate/.agents/auth.md",
-      "content": "# Auth\n\n## Rules\n\n- Call `requireUser()` first inside every server function and every server route. Route guards are UX only.\n- Add `.validator(schema)` to every server function. Parse input at the boundary.\n- Never take the user id from the client. Take it from `requireUser()`.\n- `requireUser()` sets `Cache-Control: no-store`. The `_authed` and `login` routes set it through `headers`. Keep both.\n- Keep `tanstackStartCookies()` the last plugin in `src/lib/auth/server.ts`.\n- Keep the server-only marker in `src/lib/auth/server.ts`. Do not add it to files that call `createServerFn`.\n- Do not add `src/start.ts` without checking CSRF. Without that file, Start installs CSRF middleware itself.\n\n## Commands\n\n- `bun run db:generate && bun run db:migrate`: create the auth tables.\n- `bun test`: origin rules. `bun run verify` in the registry checks cookies, CSRF and `no-store` over HTTP.\n\n## Pitfalls\n\n- A plugin after `tanstackStartCookies()` loses its Set-Cookie headers without any error. Source:\n  https://github.com/better-auth/better-auth/issues/8911\n- A server route that returns `Response.redirect()` after an auth call gives an unhandled 500. Return\n  `new Response(null, { status: 302, headers })` instead. Source: https://github.com/TanStack/router/issues/7755\n- `session.cookieCache` is on here. A report shows Safari errors with it. Test Safari before production. Source:\n  https://github.com/better-auth/better-auth/issues/9108\n- `/api/auth/*` is a server route and the CSRF middleware does not cover it. Origin checks in `origins.ts` do.\n- A redirect in `beforeLoad` does not protect a server function that anyone can call. Source:\n  https://tanstack.com/start/latest/docs/framework/react/guide/production-checklist\n",
+      "content": "# Auth\n\n## Rules\n\n- Call `requireUser()` first inside every server function and every server route. Route guards are UX only.\n- Add `.validator(schema)` to every server function. Parse input at the boundary.\n- Never take the user id from the client. Take it from `requireUser()`.\n- `requireUser()` sets `Cache-Control: no-store`. The `_authed` and `login` routes set it through `headers`. Keep both.\n- Keep at least one route under `src/routes/_authed/` (`account.tsx` ships). With no child, the layout resolves to `/` and clashes with the index route.\n- Keep `tanstackStartCookies()` the last plugin in `src/lib/auth/server.ts`.\n- Keep the server-only marker in `src/lib/auth/server.ts`. Do not add it to files that call `createServerFn`.\n- Do not add `src/start.ts` without checking CSRF. Without that file, Start installs CSRF middleware itself.\n\n## Commands\n\n- `bun run db:generate && bun run db:migrate`: create the auth tables.\n- `bun test`: origin rules. `bun run verify` in the registry checks cookies, CSRF and `no-store` over HTTP.\n\n## Pitfalls\n\n- A plugin after `tanstackStartCookies()` loses its Set-Cookie headers without any error. Source:\n  https://github.com/better-auth/better-auth/issues/8911\n- A server route that returns `Response.redirect()` after an auth call gives an unhandled 500. Return\n  `new Response(null, { status: 302, headers })` instead. Source: https://github.com/TanStack/router/issues/7755\n- `session.cookieCache` is on here. A report shows Safari errors with it. Test Safari before production. Source:\n  https://github.com/better-auth/better-auth/issues/9108\n- `/api/auth/*` is a server route and the CSRF middleware does not cover it. Origin checks in `origins.ts` do.\n- A redirect in `beforeLoad` does not protect a server function that anyone can call. Source:\n  https://tanstack.com/start/latest/docs/framework/react/guide/production-checklist\n",
       "type": "registry:file",
       "target": "~/.agents/auth.md"
+    },
+    {
+      "path": "registry/auth-gate/src/routes/_authed/account.tsx",
+      "content": "import { createFileRoute } from \"@tanstack/react-router\"\n\nimport { AccountPage } from \"@/features/auth/account-page\"\n\n/** The smallest protected page. Keep it (or another route under `_authed/`): without a child, the layout clashes with `/`. */\nexport const Route = createFileRoute(\"/_authed/account\")({\n  headers: () => ({ \"Cache-Control\": \"no-store\" }),\n  component: AccountPage,\n})\n",
+      "type": "registry:file",
+      "target": "~/src/routes/_authed/account.tsx"
+    },
+    {
+      "path": "registry/auth-gate/src/features/auth/account-page.tsx",
+      "content": "import { getRouteApi } from \"@tanstack/react-router\"\n\nconst route = getRouteApi(\"/_authed/account\")\n\nexport function AccountPage() {\n  const { user } = route.useRouteContext()\n\n  return (\n    <section className=\"flex flex-col gap-2\">\n      <h1 className=\"text-xl font-semibold tracking-tight\">Account</h1>\n      <p className=\"text-sm text-muted-foreground\">Signed in as {user.email}.</p>\n    </section>\n  )\n}\n",
+      "type": "registry:file",
+      "target": "~/src/features/auth/account-page.tsx"
     }
   ],
   "type": "registry:item"

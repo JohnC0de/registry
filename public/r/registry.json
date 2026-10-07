@@ -106,7 +106,7 @@
       "name": "auth-gate",
       "type": "registry:item",
       "title": "Better Auth gate",
-      "description": "Email/password Better Auth (Drizzle adapter), requireUser() for server fns, dev origin auto-detection (loopback + *.localhost) with a production pin to BETTER_AUTH_URL, /api/auth/* route, _authed layout, login page. After adding: run db:generate and db:migrate for the auth tables.",
+      "description": "Email/password Better Auth (Drizzle adapter), requireUser() for server fns, dev origin auto-detection (loopback + *.localhost) with a production pin to BETTER_AUTH_URL, /api/auth/* route, _authed layout, a minimal protected /account page (the layout needs at least one child route or it clashes with /), login page. After adding: run db:generate and db:migrate for the auth tables.",
       "dependencies": [
         "better-auth"
       ],
@@ -175,6 +175,16 @@
           "path": "registry/auth-gate/.agents/auth.md",
           "type": "registry:file",
           "target": "~/.agents/auth.md"
+        },
+        {
+          "path": "registry/auth-gate/src/routes/_authed/account.tsx",
+          "type": "registry:file",
+          "target": "~/src/routes/_authed/account.tsx"
+        },
+        {
+          "path": "registry/auth-gate/src/features/auth/account-page.tsx",
+          "type": "registry:file",
+          "target": "~/src/features/auth/account-page.tsx"
         }
       ]
     },

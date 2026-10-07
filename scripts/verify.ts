@@ -148,6 +148,32 @@ async function adoptAndInstall(app: string) {
   await run("install (adopted)", [bun, "install"], app)
 }
 
+/** A fresh app the way `p new` builds it: scaffold, alias, `p adopt`, then `shadcn add` for `names`. */
+async function scaffoldApp(parent: string, name: string, names: readonly string[], registryUrl: string) {
+  const dir = join(parent, name)
+  await run(
+    `scaffold ${name}`,
+    [bun, "x", TANSTACK_CLI, "create", name, "--non-interactive", "--no-git", "--no-install", "--no-intent", "--blank", "--no-toolchain", "--package-manager", "bun", "--add-ons", "shadcn,tanstack-query"],
+    parent,
+  )
+  await rewriteAlias(dir)
+  await configureComponents(dir, registryUrl)
+  await adoptAndInstall(dir)
+  await run(`shadcn add (${name})`, [bun, "x", SHADCN, "add", ...names.map((i) => `@john/${i}`), "--yes"], dir)
+  await run(`install (${name})`, [bun, "install"], dir)
+  if (existsSync(join(dir, "package-lock.json"))) throw new Error("shadcn add used npm: package-lock.json exists")
+  await addPNewFiles(dir)
+  return dir
+}
+
+/** Kit `auth` has no owned-table: the `_authed` layout must still build (it needs a child route). */
+async function authKitSubset(parent: string, registryUrl: string) {
+  const kit = ["env", "db", "auth-gate", "health", "docker", "guards"]
+  const dir = await scaffoldApp(parent, "subset", kit, registryUrl)
+  await run("subset vite build", [bun, "x", "vite", "build"], dir)
+  await run("subset typecheck", [bun, "x", "tsc", "--noEmit"], dir)
+}
+
 /** What `p new` adds because a registry item cannot ship package.json scripts or .env.example. */
 async function addPNewFiles(app: string) {
   const pkgPath = join(app, "package.json")
@@ -395,19 +421,8 @@ try {
   server = Bun.serve({ port: 0, fetch: (req) => new Response(Bun.file(join(root, "public", "r", new URL(req.url).pathname))) })
   const registryUrl = `http://localhost:${server.port}`
 
-  await run(
-    "scaffold",
-    [bun, "x", TANSTACK_CLI, "create", "app", "--non-interactive", "--no-git", "--no-install", "--no-intent", "--blank", "--no-toolchain", "--package-manager", "bun", "--add-ons", "shadcn,tanstack-query"],
-    work,
-  )
-  await rewriteAlias(app)
-  await configureComponents(app, registryUrl)
-  await adoptAndInstall(app)
-
-  await run("shadcn add", [bun, "x", SHADCN, "add", ...items.map((i) => `@john/${i}`), "--yes"], app)
-  await run("install", [bun, "install"], app)
-  if (existsSync(join(app, "package-lock.json"))) throw new Error("shadcn add used npm: package-lock.json exists")
-  await addPNewFiles(app)
+  await scaffoldApp(work, "app", items, registryUrl)
+  await authKitSubset(work, registryUrl)
 
   await run("vite build (generates the route tree)", [bun, "x", "vite", "build"], app)
   await run("track the route tree", ["git", "add", "src/routeTree.gen.ts"], app)

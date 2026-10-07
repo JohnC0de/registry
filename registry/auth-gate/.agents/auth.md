@@ -6,6 +6,7 @@
 - Add `.validator(schema)` to every server function. Parse input at the boundary.
 - Never take the user id from the client. Take it from `requireUser()`.
 - `requireUser()` sets `Cache-Control: no-store`. The `_authed` and `login` routes set it through `headers`. Keep both.
+- Keep at least one route under `src/routes/_authed/` (`account.tsx` ships). With no child, the layout resolves to `/` and clashes with the index route.
 - Keep `tanstackStartCookies()` the last plugin in `src/lib/auth/server.ts`.
 - Keep the server-only marker in `src/lib/auth/server.ts`. Do not add it to files that call `createServerFn`.
 - Do not add `src/start.ts` without checking CSRF. Without that file, Start installs CSRF middleware itself.

@@ -23,7 +23,7 @@ Built for a fresh `@tanstack/cli create` scaffold (Tailwind 4, shadcn new-york) 
 | --- | --- | --- | --- |
 | `env` | `src/env.ts`: zod `getServerEnv()` (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, optional `BETTER_AUTH_TRUSTED_ORIGINS`, `PORTLESS_URL`), parsed on first use so builds need no secrets; server-only marker | `.agents/env.md` | none |
 | `db` | drizzle client `getDb()` (server-only), shared `timestamps` columns, `drizzle.config.ts`, `scripts/migrate.ts`, `scripts/migrate-production.ts` (guarded), Postgres `docker-compose.yml` | `.agents/database.md` | `env` |
-| `auth-gate` | Better Auth (email + password, `tanstackStartCookies()` last), `requireUser()` (sets `no-store`), dev origin detection with tests, `/api/auth/*`, `_authed` layout (`no-store`), `/login` | `.agents/auth.md` | `env`, `db`, shadcn `button` `input` `label` |
+| `auth-gate` | Better Auth (email + password, `tanstackStartCookies()` last), `requireUser()` (sets `no-store`), dev origin detection with tests, `/api/auth/*`, `_authed` layout (`no-store`), `/account` (minimal protected page; the layout needs a child route), `/login` | `.agents/auth.md` | `env`, `db`, shadcn `button` `input` `label` |
 | `owned-table` | Ownership pattern: `notes` table with indexed `userId`, server fns scoped by session user, schemas + tests, `/notes` page, lock ownership rule | `.agents/data-access.md` | `auth-gate` |
 | `health` | `GET /api/health` (liveness, no I/O) and `?deep=1` (pings Postgres, 503 when down) | none | `db` |
 | `docker` | Multi-stage `Dockerfile` (digest-pinned bases, typecheck gate, non-root, ships `drizzle/` and `scripts/migrate.ts`), `serve.ts`, `.dockerignore`, `docker-compose.coolify.yml` | `.agents/deploy.md` | `health` |
